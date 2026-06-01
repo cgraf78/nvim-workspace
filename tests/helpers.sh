@@ -47,5 +47,5 @@ _nvim_lua() {
   local lua_path="$TEST_ROOT/lua/?.lua;$TEST_ROOT/lua/?/init.lua;$TEST_ROOT/tests/?.lua"
   nvim --headless --noplugin -u NONE -i NONE \
     -c "lua package.path='$lua_path;' .. package.path; vim.opt.runtimepath:prepend('$TEST_ROOT'); $1" \
-    -c 'qa!' 2>&1
+    -c 'qa!' 2>&1 | tr -d '\r'
 }

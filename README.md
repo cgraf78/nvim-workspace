@@ -67,8 +67,10 @@ Grep sources receive the same callback shape, but should return ripgrep
 ## Tests
 
 ```bash
-make test
+tests/run
 ```
+
+`make test` is also available as a local convenience wrapper.
 
 The test suite is intentionally derived from the original dotfiles Neovim tests
 so behavior stays stable across the extraction.
