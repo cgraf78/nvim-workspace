@@ -1,4 +1,4 @@
-*nvim-workspace.txt*        Workspace-aware file and grep pickers
+*nvim-workspace.txt*        Workspace-aware navigation for Neovim
 
 ==============================================================================
 CONTENTS                                      *nvim-workspace*
@@ -7,13 +7,16 @@ CONTENTS                                      *nvim-workspace*
 2. Setup                            |nvim-workspace-setup|
 3. Commands                         |nvim-workspace-commands|
 4. API                              |nvim-workspace-api|
+5. Neo-tree                         |nvim-workspace-neo-tree|
+6. Sessions                         |nvim-workspace-sessions|
 
 ==============================================================================
 OVERVIEW                                      *nvim-workspace-overview*
 
-nvim-workspace provides workspace-aware file and content search for Neovim.
-It keeps path/root policy in one place, then exposes Telescope-backed file and
-grep pickers built on that policy.
+nvim-workspace provides workspace-aware navigation, search, explorer, and
+session policy for Neovim. It keeps path/root policy in one place, then exposes
+Telescope-backed file and grep pickers, optional Neo-tree helpers, and optional
+persistence.nvim session helpers built on that policy.
 
 The default behavior is intentionally broad: file and grep pickers search from
 HOME unless a caller passes an explicit root. Users can switch root from inside
@@ -52,10 +55,11 @@ COMMANDS                                       *nvim-workspace-commands*
 ==============================================================================
 API                                                 *nvim-workspace-api*
 
-Use `require("nvim_workspace")` for host config integrations. Modules below
-`nvim_workspace.core` and `nvim_workspace.picker` are internal implementation
-modules; they are not part of the public API even though the test suite imports
-them directly.
+Use `require("nvim_workspace")` for picker and root integrations. Optional
+public integration modules are `nvim_workspace.neo_tree` and
+`nvim_workspace.session`. Modules below `nvim_workspace.core` and
+`nvim_workspace.picker` are internal implementation modules; they are not part
+of the public API even though the test suite imports them directly.
 
                                                         *nvim_workspace.setup()*
 setup({opts}) ~
@@ -97,5 +101,41 @@ current_buffer_dir() ~
                                                         *nvim_workspace.repo_root()*
 repo_root({start}) ~
   Return the detected workspace root for {start}, or a normalized fallback.
+
+==============================================================================
+NEO-TREE                                       *nvim-workspace-neo-tree*
+
+Use `require("nvim_workspace.neo_tree")` for optional Neo-tree integration.
+
+filesystem_policy({root}) ~
+  Return per-root Neo-tree git-status and filtering policy.
+
+filesystem_mappings() ~
+  Return mappings that mirror picker root controls: CTRL-R for HOME, CTRL-W
+  for workspace root, and CTRL-D to prompt for a directory.
+
+setup_manager_patch() ~
+  Patch Neo-tree manager boundaries so reveal paths preserve visible HOME
+  symlinks and per-root policy applies to navigation entry points.
+
+open({root}, {opts}) ~
+  Open Neo-tree with nvim-workspace root and reveal policy.
+
+==============================================================================
+SESSIONS                                      *nvim-workspace-sessions*
+
+Use `require("nvim_workspace.session")` for optional persistence.nvim
+integration.
+
+load() ~
+  Load the current persistence session when Neovim started without file
+  arguments, then repair stale buffers and filetype state.
+
+save() ~
+  Save the current persistence session and file-root aliases.
+
+save_current({persistence_plugin}) ~
+  Save through an injected persistence-like object. This is mostly useful for
+  tests or advanced host integrations.
 
 vim:tw=78:ts=8:ft=help:norl:

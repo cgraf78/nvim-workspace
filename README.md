@@ -1,11 +1,11 @@
 # nvim-workspace
 
-Workspace-aware file and content search for Neovim.
+Workspace-aware navigation, search, explorer, and session policy for Neovim.
 
 `nvim-workspace` provides a VS Code-like workspace navigation model while
 staying Neovim-native: recent-first file search, workspace-wide grep, explicit
-root switching, HOME/symlink-aware path display, and safe behavior for large
-workspace roots.
+root switching, HOME/symlink-aware path display, optional Neo-tree integration,
+session aliases for project roots, and safe behavior for large workspace roots.
 
 ## Features
 
@@ -17,6 +17,10 @@ workspace roots.
   user opened
 - large-root policy hook for callers that need to suppress expensive scans
 - extension sources for adding external file and grep backends
+- optional Neo-tree helpers for matching picker root controls and visible
+  symlink reveal behavior
+- optional persistence.nvim helpers that keep launch-cwd and file-root sessions
+  in sync
 
 ## Requirements
 
@@ -62,9 +66,55 @@ Public integrations should use only the top-level module:
 - `default_root()`, `current_file_dir()`, `current_buffer_dir()`, and
   `repo_root(start)` expose workspace roots without requiring internal modules.
 
+Two optional integration modules are public:
+
+- `require("nvim_workspace.neo_tree")` for Neo-tree root/reveal policy.
+- `require("nvim_workspace.session")` for persistence.nvim session policy.
+
 Modules under `nvim_workspace.core` and `nvim_workspace.picker` are internal
 implementation modules. They are tested directly, but host configs should not
 depend on them.
+
+## Neo-tree
+
+```lua
+local tree = require("nvim_workspace.neo_tree")
+
+tree.setup_manager_patch()
+
+require("neo-tree").setup({
+  filesystem = {
+    follow_current_file = { enabled = true },
+    filtered_items = tree.filesystem_policy().filtered_items,
+    window = {
+      mappings = tree.filesystem_mappings(),
+    },
+  },
+})
+```
+
+Use `tree.open(nil, { toggle = true })` for a broad HOME explorer and
+`tree.open(tree.context_root(), { action = "focus" })` for a workspace-root
+explorer.
+
+## Sessions
+
+```lua
+local session = require("nvim_workspace.session")
+
+vim.api.nvim_create_autocmd("VimEnter", {
+  nested = true,
+  callback = session.load,
+})
+
+vim.api.nvim_create_autocmd("VimLeavePre", {
+  callback = session.save,
+})
+```
+
+When using persistence.nvim, call `persistence.stop()` after setup if you want
+`nvim-workspace` to own quit-time saves and write file-root aliases together
+with the launch-cwd session.
 
 ## Extension Sources
 
