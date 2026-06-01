@@ -17,4 +17,4 @@ jobs:
     uses: cgraf78/actions/.github/workflows/shell-ci.yml@main # zizmor: ignore[unpinned-uses]
     with:
       profiles: base,lua,neovim,python
-      test-command: make test
+      test-command: tests/run

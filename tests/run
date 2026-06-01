@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+tests/api-test
+tests/recent-test
+tests/workspace-test
+tests/picker-test
