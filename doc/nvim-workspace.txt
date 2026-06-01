@@ -9,6 +9,7 @@ CONTENTS                                      *nvim-workspace*
 4. API                              |nvim-workspace-api|
 5. Neo-tree                         |nvim-workspace-neo-tree|
 6. Sessions                         |nvim-workspace-sessions|
+7. Shell Workspaces                 |nvim-workspace-shell|
 
 ==============================================================================
 OVERVIEW                                      *nvim-workspace-overview*
@@ -57,9 +58,10 @@ API                                                 *nvim-workspace-api*
 
 Use `require("nvim_workspace")` for picker and root integrations. Optional
 public integration modules are `nvim_workspace.neo_tree` and
-`nvim_workspace.session`. Modules below `nvim_workspace.core` and
-`nvim_workspace.picker` are internal implementation modules; they are not part
-of the public API even though the test suite imports them directly.
+`nvim_workspace.session`, and `nvim_workspace.shell`. Modules below
+`nvim_workspace.core` and `nvim_workspace.picker` are internal implementation
+modules; they are not part of the public API even though the test suite imports
+them directly.
 
                                                         *nvim_workspace.setup()*
 setup({opts}) ~
@@ -137,5 +139,51 @@ save() ~
 save_current({persistence_plugin}) ~
   Save through an injected persistence-like object. This is mostly useful for
   tests or advanced host integrations.
+
+==============================================================================
+SHELL WORKSPACES                              *nvim-workspace-shell*
+
+Use `require("nvim_workspace.shell")` for optional shell language-server
+workspace policy.
+
+root_for({path}) ~
+  Return the bounded shell workspace root for {path}. Normal repos use their
+  VCS root. Configured HOME shell paths use HOME only when HOME is an explicit
+  workspace; unrelated HOME shell files stay local.
+
+root_dir({bufnr}, {on_dir}) ~
+  nvim-lspconfig-compatible root callback for bashls.
+
+glob_for({root}) ~
+  Return the bashls globPattern for {root}. HOME and optional HOME-shaped
+  overlays use configured bounded patterns; normal repos use the recursive
+  shell glob.
+
+search_paths_for({path}) ~
+  Return `{paths}, {globs}, {root}` for fallback shell-symbol navigation using
+  the same bounded workspace policy as bashls.
+
+is_home_shell_path({path}) ~
+  Return true when {path} belongs to the configured HOME-shaped shell
+  workspace. Fallback navigation can use this to prefer the bounded shell index
+  for files where bashls coverage is known to be uneven.
+
+before_init({client}, {config}) ~
+  Configure bashls to include all workspace symbols and use `glob_for()` for
+  the selected root.
+
+Shell setup options:
+>
+  require("nvim_workspace").setup({
+    shell = {
+      home_globs = { ".local/bin/agent-hook-*" },
+      home_dirs = {
+        { prefix = ".config/shell/", glob = ".config/shell/**/*@(.sh|.bash)" },
+        { prefix = ".local/bin/", direct = true },
+      },
+      overlay = { enabled = true },
+    },
+  })
+<
 
 vim:tw=78:ts=8:ft=help:norl:

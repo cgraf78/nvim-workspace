@@ -19,6 +19,10 @@ end
 local home = strip_trailing_slash(vim.fn.fnamemodify(vim.env.HOME or "~", ":p"))
 local home_aliases
 
+local function dotfiles_git_dir()
+  return home .. "/.dotfiles"
+end
+
 -- Expand user/env syntax and produce an absolute path without resolving
 -- symlinks. Use canonical() when realpath comparison is needed instead.
 function M.absolute_path(path)
@@ -327,7 +331,7 @@ local function dotfiles_repo_root(cwd)
     return nil
   end
 
-  local dotfiles_dir = home .. "/.dotfiles"
+  local dotfiles_dir = dotfiles_git_dir()
   local stat = vim.uv.fs_stat(dotfiles_dir)
   if not stat or stat.type ~= "directory" then
     return nil
@@ -347,6 +351,20 @@ local function dotfiles_repo_root(cwd)
       SLEY_BARE_REPO_WORK_TREE = home,
     },
   })
+end
+
+function M.find_home_repo_root()
+  local root = dotfiles_repo_root(home)
+  if root == home then
+    return root
+  end
+
+  local dotfiles_dir = dotfiles_git_dir()
+  local stat = vim.uv.fs_stat(dotfiles_dir)
+  if stat and stat.type == "directory" then
+    return home
+  end
+  return nil
 end
 
 -- Detect a normal VCS workspace through the PATH-visible sley entry point. This

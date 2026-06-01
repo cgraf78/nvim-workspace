@@ -30,12 +30,16 @@ _assert_eq "api: does not expose internal workspace module through facade" "$exp
 result=$(_nvim_lua '
   local neo_tree = require("nvim_workspace.neo_tree")
   local session = require("nvim_workspace.session")
+  local shell = require("nvim_workspace.shell")
   print(type(neo_tree.filesystem_policy))
   print(type(neo_tree.setup_manager_patch))
   print(type(session.load))
   print(type(session.save))
+  print(type(shell.root_for))
+  print(type(shell.search_paths_for))
+  print(type(shell.before_init))
 ')
-expected="$(printf 'function\nfunction\nfunction\nfunction')"
+expected="$(printf 'function\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction')"
 _assert_eq "api: exposes optional integration modules explicitly" "$expected" "$result"
 
 result=$(_nvim_lua '

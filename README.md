@@ -21,6 +21,8 @@ session aliases for project roots, and safe behavior for large workspace roots.
   symlink reveal behavior
 - optional persistence.nvim helpers that keep launch-cwd and file-root sessions
   in sync
+- optional shell-language workspace policy that keeps bashls and fallback
+  shell navigation scoped away from broad HOME scans
 
 ## Requirements
 
@@ -70,6 +72,7 @@ Two optional integration modules are public:
 
 - `require("nvim_workspace.neo_tree")` for Neo-tree root/reveal policy.
 - `require("nvim_workspace.session")` for persistence.nvim session policy.
+- `require("nvim_workspace.shell")` for shell language-server root policy.
 
 Modules under `nvim_workspace.core` and `nvim_workspace.picker` are internal
 implementation modules. They are tested directly, but host configs should not
@@ -115,6 +118,34 @@ vim.api.nvim_create_autocmd("VimLeavePre", {
 When using persistence.nvim, call `persistence.stop()` after setup if you want
 `nvim-workspace` to own quit-time saves and write file-root aliases together
 with the launch-cwd session.
+
+## Shell Workspaces
+
+```lua
+local shell = require("nvim_workspace.shell")
+
+require("lspconfig").bashls.setup({
+  before_init = shell.before_init,
+  root_dir = shell.root_dir,
+  root_markers = nil,
+})
+```
+
+Use `setup({ shell = ... })` to add HOME-scoped shell paths without turning all
+of HOME into a language-server workspace:
+
+```lua
+require("nvim_workspace").setup({
+  shell = {
+    home_globs = { ".local/bin/agent-hook-*" },
+    home_dirs = {
+      { prefix = ".config/shell/", glob = ".config/shell/**/*@(.sh|.bash)" },
+      { prefix = ".local/bin/", direct = true },
+    },
+    overlay = { enabled = true },
+  },
+})
+```
 
 ## Extension Sources
 
