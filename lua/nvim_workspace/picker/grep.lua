@@ -8,6 +8,9 @@
 -- Picker mappings restart with a different explicit root instead of changing
 -- nvim's cwd, which avoids surprising other editor features.
 -- Scope controls: C-r home, C-w repo/workspace root, C-d prompt for directory.
+--
+-- Internal module: use require("nvim_workspace").grep() and
+-- require("nvim_workspace").register_grep_source() from host configs.
 
 local M = {}
 
@@ -18,6 +21,8 @@ function M.dedup_lines(lines)
   local seen = {}
   for _, line in ipairs(lines) do
     if line ~= "" then
+      -- Treat path+line as the identity so recent-file and root searches do not
+      -- show duplicate hits while still preserving distinct backend locations.
       local key = line:match("^(.-:%d+:)") or line
       if not seen[key] then
         seen[key] = true
@@ -68,11 +73,15 @@ function M.find(opts)
   local conf = require("telescope.config").values
   local make_entry = require("telescope.make_entry")
   local root, context_root = M.resolve_root(opts)
+  -- Large roots still get recent-file and extension results, but root ripgrep
+  -- is a recursive content scan. Host policy decides when that is too costly.
   local use_root_rg = not scope.is_large_search_root(root)
 
   local entry_maker = make_entry.gen_from_vimgrep({})
 
   local function make_finder(results)
+    -- Telescope table finders are immutable snapshots. Each async batch creates
+    -- a fresh finder so the prompt remains stable while results update.
     return finders.new_table({
       results = results or {},
       entry_maker = entry_maker,
@@ -109,6 +118,8 @@ function M.find(opts)
 
   local tmpfile
   if #recent > 0 then
+    -- rg --files-from avoids command-line length limits and keeps paths exact,
+    -- which matters for spaces and symlink spellings in recent-file entries.
     tmpfile = vim.fn.tempname()
     vim.fn.writefile(recent, tmpfile)
   end
@@ -235,6 +246,9 @@ function M.find(opts)
               end
 
               local function schedule_refresh()
+                -- Coalesce same-tick backend chunks into one Telescope refresh.
+                -- Some sources stream quickly, and refreshing for every small
+                -- partial result makes insert-mode typing noticeably worse.
                 if refresh_scheduled then
                   return
                 end
@@ -243,6 +257,9 @@ function M.find(opts)
               end
 
               local function source_done(lines, _done_opts)
+                -- Query generations guard every delayed callback. A cancelled
+                -- rg process or extension source may still deliver output after
+                -- the user has typed a new prompt or closed the picker.
                 if my_gen ~= query_gen then
                   return 0
                 end

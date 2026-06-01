@@ -3,6 +3,9 @@
 -- Root detection and HOME/symlink normalization live in core.workspace.
 -- This module adds search-specific filtering, vimgrep path parsing, and
 -- Telescope root-switching mappings for the custom file/search pickers.
+--
+-- Internal module: file and grep pickers share these helpers, but external
+-- callers should register sources or open pickers through nvim_workspace.
 
 local M = {}
 local workspace = require("nvim_workspace.core.workspace")
@@ -14,6 +17,9 @@ for _, name in ipairs(vcs_metadata_dir_names) do
 end
 
 local path_query_regex_chars = [[\.^$*+?()[]{}|]]
+-- Indexed sources may support unordered path matching, but factorial regexes
+-- become UI-thread work. Five terms covers normal path queries while keeping
+-- pasted prose on the cheap fallback path.
 local max_unordered_regex_terms = 5
 
 local function regex_escape(text)
@@ -45,6 +51,9 @@ function M.resolve_root(opts)
 end
 
 function M.cancel_handle(handle)
+  -- Extension sources can return different cancellation shapes depending on
+  -- whether they wrap vim.system, libuv, or a composite backend. Normalize that
+  -- contract here so file and grep pickers do not need parallel cleanup logic.
   if type(handle) == "function" then
     pcall(handle)
     return
@@ -205,6 +214,9 @@ function M.status(opts)
 end
 
 function M.operation_status(status_state, opts)
+  -- Multiple backends can be active for one query. Show the most recent active
+  -- event instead of letting a completed backend overwrite the status while
+  -- slower work is still running.
   opts = opts or {}
   local idle = opts.idle or "idle"
   local active = {}
@@ -289,6 +301,9 @@ function M.status_layout(status_state, opts)
     local api = vim.api
 
     local function make_border(border)
+      -- Telescope's layout object expects winid, while plenary.popup returns
+      -- win_id. Adapting in one place keeps the custom status row compatible
+      -- with Telescope's normal mount/unmount flow.
       if not border then
         return nil
       end
@@ -323,6 +338,9 @@ function M.status_layout(status_state, opts)
         return
       end
 
+      -- Carve the status row out of the results pane instead of adding another
+      -- floating layer. That keeps Telescope's prompt/results/preview geometry
+      -- stable across small terminals and dynamic layout updates.
       local status_opts = vim.deepcopy(popup_opts.results)
       status_opts.enter = false
       status_opts.focusable = false
@@ -462,6 +480,9 @@ function M.fd_query_args(prompt)
 
   local args = {}
   for i = 2, #terms do
+    -- fd treats --and terms as additional regex filters. This gives path search
+    -- a simple "all words somewhere in the path" behavior without shelling out
+    -- to a custom fuzzy matcher.
     args[#args + 1] = "--and"
     args[#args + 1] = regex_escape(terms[i])
   end
@@ -583,6 +604,9 @@ function M.visible_vimgrep_line(root, line)
     return nil
   end
 
+  -- Extension sources and rg both speak vimgrep lines. Rewrite only the path
+  -- prefix so line/column/message text stays byte-for-byte compatible with
+  -- Telescope's vimgrep entry maker.
   local path, suffix = line:match("^(.-)(:%d+:%d+:.*)$")
   if not path then
     path, suffix = line:match("^(.-)(:%d+:.*)$")
@@ -712,6 +736,8 @@ function M.attach_picker_mappings(prompt_bufnr, map, opts)
   end
 
   local function reopen(new_root)
+    -- Close before reopening so Telescope releases the old prompt buffer and
+    -- any active backend handles owned by its cleanup autocmds.
     actions.close(prompt_bufnr)
     vim.schedule(function()
       open(new_root)

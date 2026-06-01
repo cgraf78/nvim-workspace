@@ -3,6 +3,9 @@
 -- This module owns root detection and path normalization across custom nvim
 -- features. Tool-specific modules should build on this instead of rediscovering
 -- repos or reimplementing HOME symlink handling.
+--
+-- Internal module: host configs should use the top-level nvim_workspace facade.
+-- Only functions re-exported from that facade are part of the public API.
 
 local M = {}
 
