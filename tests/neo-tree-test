@@ -1,0 +1,253 @@
+#!/usr/bin/env bash
+
+set -o pipefail
+
+# shellcheck source=tests/helpers.sh
+. "$(dirname "$0")/helpers.sh"
+
+echo "=== neo-tree integration ==="
+
+tmp=$(_tmpdir)
+mkdir -p "$tmp/home" "$tmp/data/project/src" "$tmp/outside"
+touch "$tmp/data/project/src/file.cpp" "$tmp/outside/target.cpp"
+ln -s "$tmp/data/project" "$tmp/home/project"
+ln -s "$tmp/outside/target.cpp" "$tmp/data/project/src/link.cpp"
+
+result=$(_nvim_lua "
+  vim.env.HOME = '$tmp/home'
+  package.loaded['nvim_workspace.core.workspace'] = nil
+  local paths = require('nvim_workspace.neo_tree')
+  print(paths.reveal_file('$tmp/data/project', '$tmp/home/project/src/file.cpp'))
+  print(paths.reveal_file('$tmp/home/project', '$tmp/data/project/src/file.cpp'))
+  print(paths.reveal_file('$tmp/data/project', '$tmp/data/project/src/link.cpp'))
+")
+expected="$(printf '%s\n%s\n%s' \
+  "$tmp/data/project/src/file.cpp" \
+  "$tmp/home/project/src/file.cpp" \
+  "$tmp/data/project/src/link.cpp")"
+_assert_eq "neo-tree: maps symlinked repo roots without dereferencing file symlinks" \
+  "$expected" "$result"
+
+result=$(_nvim_lua "
+  vim.env.HOME = '$tmp/home'
+  package.loaded['nvim_workspace.core.workspace'] = nil
+  local paths = require('nvim_workspace.neo_tree')
+  vim.api.nvim_command('edit $tmp/data/project/src/file.cpp')
+  print(paths.root_dir())
+")
+_assert_eq "neo-tree: root_dir defaults new opens to home" "$tmp/home" "$result"
+
+result=$(_nvim_lua "
+  package.loaded['nvim_workspace.core.workspace'] = {
+    current_buffer_dir = function()
+      print('current-buffer-dir')
+      return '$tmp/home/project/src'
+    end,
+    repo_root = function(dir)
+      print('repo-root=' .. dir)
+      return '$tmp/home/project'
+    end,
+    canonical = function(root)
+      print('canonical=' .. root)
+      return '$tmp/data/project'
+    end,
+  }
+  local paths = require('nvim_workspace.neo_tree')
+  print('root=' .. paths.context_root())
+")
+expected="$(printf 'current-buffer-dir\nrepo-root=%s\ncanonical=%s\nroot=%s' \
+  "$tmp/home/project/src" \
+  "$tmp/home/project" \
+  "$tmp/data/project")"
+_assert_eq "neo-tree: context_root delegates to workspace helpers" "$expected" "$result"
+
+result=$(_nvim_lua "
+  local open_root = '$tmp/home/project'
+  package.loaded['neo-tree.sources.manager'] = {
+    get_state = function(source)
+      if source == 'filesystem' then
+        return { path = open_root }
+      end
+      return nil
+    end,
+  }
+  package.loaded['nvim_workspace.core.workspace'] = {
+    current_buffer_dir = function()
+      error('workspace root should not be recomputed inside neo-tree')
+    end,
+  }
+  local paths = require('nvim_workspace.neo_tree')
+  vim.bo.filetype = 'neo-tree'
+  print(paths.root_dir())
+")
+_assert_eq "neo-tree: root_dir preserves existing filesystem root" "$tmp/home/project" "$result"
+
+result=$(_nvim_lua "
+  vim.env.HOME = '$tmp/home'
+  package.loaded['nvim_workspace.core.workspace'] = nil
+  local paths = require('nvim_workspace.neo_tree')
+  vim.api.nvim_command('new')
+  vim.bo.buftype = 'nofile'
+  vim.bo.filetype = 'neo-tree'
+  vim.api.nvim_buf_set_name(0, '$tmp/data/project/neo-tree filesystem [1]')
+  print(tostring(paths.reveal_file('$tmp/data/project')))
+")
+_assert_eq "neo-tree: ignores synthetic names without last file" "nil" "$result"
+
+result=$(_nvim_lua "
+  vim.env.HOME = '$tmp/home'
+  package.loaded['nvim_workspace.core.workspace'] = nil
+  package.loaded['nvim_workspace.neo_tree'] = nil
+  local paths = require('nvim_workspace.neo_tree')
+  vim.api.nvim_command('edit $tmp/data/project/src/file.cpp')
+  paths.remember_current_file()
+  vim.api.nvim_command('new')
+  vim.bo.buftype = 'nofile'
+  vim.bo.filetype = 'neo-tree'
+  vim.api.nvim_buf_set_name(0, '$tmp/data/project/neo-tree filesystem [1]')
+  print(paths.reveal_file('$tmp/data/project'))
+")
+_assert_eq "neo-tree: uses last real file when focus is in neo-tree" \
+  "$tmp/data/project/src/file.cpp" "$result"
+
+result=$(_nvim_lua "
+  local paths = require('nvim_workspace.neo_tree')
+  local cwd_based = false
+  _G.in_large_repo = function(path)
+    if path == nil then
+      cwd_based = true
+    end
+    return false
+  end
+  local policy = paths.filesystem_policy()
+  print(tostring(policy.enable_git_status))
+  print(tostring(cwd_based))
+")
+expected="$(printf 'true\nfalse')"
+_assert_eq "neo-tree: default policy is not cwd-based" "$expected" "$result"
+
+result=$(_nvim_lua "
+  local paths = require('nvim_workspace.neo_tree')
+  _G.in_large_repo = function()
+    return false
+  end
+  local policy = paths.filesystem_policy('$tmp/home/project')
+  print(tostring(policy.enable_git_status))
+  print(tostring(policy.filtered_items.hide_dotfiles))
+  print(tostring(policy.filtered_items.hide_gitignored))
+  print(#policy.filtered_items.ignore_files)
+")
+expected="$(printf 'true\ntrue\ntrue\n2')"
+_assert_eq "neo-tree: normal roots keep git status and hide dotfiles" "$expected" "$result"
+
+result=$(_nvim_lua "
+  vim.env.HOME = '$tmp/home'
+  package.loaded['nvim_workspace.core.workspace'] = nil
+  local paths = require('nvim_workspace.neo_tree')
+  _G.in_large_repo = function()
+    return false
+  end
+  local policy = paths.filesystem_policy('$tmp/home')
+  print(tostring(policy.enable_git_status))
+  print(tostring(policy.filtered_items.hide_dotfiles))
+  print(tostring(policy.filtered_items.hide_gitignored))
+  print(#policy.filtered_items.ignore_files)
+  print(table.concat(policy.filtered_items.ignore_files, ','))
+")
+expected="$(printf 'false\ntrue\ntrue\n1\n.neotreeignore')"
+_assert_eq "neo-tree: home root uses tree-specific ignore file" "$expected" "$result"
+
+vcs_bin=$(_tmpdir)
+cat >"$vcs_bin/sley" <<EOF
+#!/usr/bin/env sh
+printf '{"repo_type":"git","root":"%s","ref":"main","counts":{"staged":0,"pending":0,"unstaged":0,"untracked":0},"dirty":false}\n' "$tmp/home/project"
+EOF
+chmod +x "$vcs_bin/sley"
+result=$(PATH="$vcs_bin:$PATH" _nvim_lua "
+  vim.env.HOME = '$tmp/home'
+  package.loaded['nvim_workspace.core.workspace'] = nil
+  local paths = require('nvim_workspace.neo_tree')
+  _G.in_large_repo = function()
+    return false
+  end
+  local policy = paths.filesystem_policy('$tmp/home/project/src')
+  print(tostring(policy.enable_git_status))
+  print(tostring(policy.filtered_items.hide_dotfiles))
+  print(tostring(policy.filtered_items.hide_gitignored))
+  print(#policy.filtered_items.ignore_files)
+")
+expected="$(printf 'true\ntrue\ntrue\n2')"
+_assert_eq "neo-tree: normal repos under home keep project git status" "$expected" "$result"
+
+result=$(_nvim_lua "
+  local large = '$tmp/data/project'
+  _G.in_large_repo = function(path)
+    return path == large
+  end
+  package.loaded['neo-tree'] = {
+    config = {
+      enable_git_status = true,
+    },
+  }
+  local manager = {
+    get_path_to_reveal = function()
+      return nil
+    end,
+    navigate = function(state, path)
+      print(path)
+      print(tostring(package.loaded['neo-tree'].config.enable_git_status))
+      print(tostring(state.enable_git_status))
+      print(tostring(state.filtered_items.hide_dotfiles))
+      print(tostring(state.filtered_items.hide_gitignored))
+    end,
+  }
+  package.loaded['neo-tree.sources.manager'] = manager
+
+  local paths = require('nvim_workspace.neo_tree')
+  paths.setup_manager_patch()
+  manager.navigate({
+    name = 'filesystem',
+    filtered_items = {
+      hide_dotfiles = false,
+    },
+  }, large)
+")
+expected="$(printf '%s\nfalse\nfalse\ntrue\nfalse' "$tmp/data/project")"
+_assert_eq "neo-tree: shared navigation applies large-root policy" "$expected" "$result"
+
+result=$(_nvim_lua "
+  local opened = {}
+  package.loaded['nvim_workspace.core.workspace'] = {
+    default_root = function()
+      return '$tmp/home'
+    end,
+    current_buffer_dir = function()
+      return '$tmp/home/project/src'
+    end,
+    repo_root = function(dir)
+      return dir .. '/repo'
+    end,
+    canonical = function(path)
+      return path
+    end,
+    normalize = function(path)
+      return path
+    end,
+    prompt_for_dir = function(default_root, callback, opts)
+      opened[#opened + 1] = 'prompt=' .. default_root .. ':' .. opts.prompt
+      callback('$tmp/home/prompted')
+    end,
+  }
+  local paths = require('nvim_workspace.neo_tree')
+  paths.open = function(dir)
+    opened[#opened + 1] = tostring(dir)
+  end
+  local mappings = paths.filesystem_mappings()
+  mappings['<C-r>']({})
+  mappings['<C-w>']({})
+  mappings['<C-d>']({})
+  opened[#opened + 1] = 'ctrl_l=' .. tostring(mappings['<C-l>'])
+  print(table.concat(opened, '|'))
+")
+expected="$tmp/home|$tmp/home/project/src/repo|prompt=$tmp/home/project/src/repo:Explorer root: |$tmp/home/prompted|ctrl_l=nil"
+_assert_eq "neo-tree: filesystem mappings mirror picker root controls" "$expected" "$result"
