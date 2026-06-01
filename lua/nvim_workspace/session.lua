@@ -35,13 +35,23 @@ end
 -- re-reading the file: `:edit` would fire BufReadPost again, and LazyVim's
 -- last-location autocmd would prefer the ShaDa '"' mark over the session cursor.
 function M.refresh_current_filetype()
-  if vim.api.nvim_buf_get_name(0) == "" then
+  local name = vim.api.nvim_buf_get_name(0)
+  if name == "" then
     return
   end
 
   local win = vim.api.nvim_get_current_win()
   local view = vim.fn.winsaveview()
-  vim.cmd("filetype detect")
+  local ok = pcall(vim.cmd, "filetype detect")
+  if not ok and vim.filetype and type(vim.filetype.match) == "function" then
+    -- Minimal/headless configs may not have created the filetypedetect group.
+    -- Match directly instead of re-reading the file or depending on startup
+    -- autocmds.
+    local ft = vim.filetype.match({ buf = 0, filename = name })
+    if type(ft) == "string" and ft ~= "" then
+      vim.bo.filetype = ft
+    end
+  end
   if vim.api.nvim_win_is_valid(win) then
     vim.api.nvim_win_call(win, function()
       vim.fn.winrestview(view)
