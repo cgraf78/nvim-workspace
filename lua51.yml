@@ -1,0 +1,31 @@
+globals:
+  _G:
+    any: true
+  assert:
+    any: true
+  ipairs:
+    any: true
+  math:
+    any: true
+  next:
+    any: true
+  pairs:
+    any: true
+  pcall:
+    any: true
+  rawget:
+    any: true
+  require:
+    any: true
+  string:
+    any: true
+  table:
+    any: true
+  tonumber:
+    any: true
+  tostring:
+    any: true
+  type:
+    any: true
+  unpack:
+    any: true

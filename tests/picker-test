@@ -1,0 +1,506 @@
+#!/usr/bin/env bash
+
+set -o pipefail
+
+# shellcheck source=tests/helpers.sh
+. "$(dirname "$0")/helpers.sh"
+
+tmp=$(_tmpdir)
+mkdir -p "$tmp/project/src" "$tmp/project/.hg/origbackups" "$tmp/project/.config"
+mkdir -p "$tmp/project-other" "$tmp/home" "$tmp/data/project/src"
+touch "$tmp/project/src/file.lua" "$tmp/project/.hg/origbackups/file.lua"
+touch "$tmp/project/.config/app.lua" "$tmp/project-other/file.lua"
+touch "$tmp/data/project/src/file.lua"
+ln -s "$tmp/data/project" "$tmp/home/project"
+
+echo "=== picker scope ==="
+
+result=$(_nvim_lua '
+  local scope = require("nvim_workspace.picker.scope")
+  print(type(scope.attach_picker_mappings))
+  print(scope.title("Files", vim.env.HOME))
+  print(tostring(scope.repo_root))
+')
+expected="$(printf 'function\nFiles: ~\nnil')"
+_assert_eq "scope: exposes picker helpers without owning roots" "$expected" "$result"
+
+result=$(_nvim_lua "
+  local scope = require('nvim_workspace.picker.scope')
+  local filtered, seen = scope.filter_paths({
+    '$tmp/data/project/src/file.lua',
+  }, '$tmp/home/project')
+  print(filtered[1])
+  print(tostring(seen['$tmp/home/project/src/file.lua']))
+  print(tostring(seen['$tmp/data/project/src/file.lua']))
+")
+expected="$(printf '%s\ntrue\nnil' "$tmp/home/project/src/file.lua")"
+_assert_eq "filter_paths: returns visible paths, not canonical aliases" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local probes = 0
+  package.loaded["nvim_workspace.core.workspace"] = {
+    normalize = function(path)
+      return path
+    end,
+    current_buffer_dir = function()
+      return "/home/me/repo/src"
+    end,
+    find_repo_root = function()
+      probes = probes + 1
+      return "/home/me/repo"
+    end,
+    default_root = function()
+      return "/home/me"
+    end,
+  }
+  package.loaded["nvim_workspace.picker.scope"] = nil
+  local scope = require("nvim_workspace.picker.scope")
+  local root, context_root = scope.resolve_root({})
+  print(root)
+  print(context_root)
+  print(probes)
+')
+expected="$(printf '/home/me\n/home/me/repo/src\n0')"
+_assert_eq "search root policy: default searches home without repo anchoring" "$expected" "$result"
+
+result=$(_nvim_lua "
+  local scope = require('nvim_workspace.picker.scope')
+  local results = { '$tmp/project/src/existing.lua:3:1:old' }
+  local seen = { ['$tmp/project/src/existing.lua:3:'] = true }
+  local added = scope.add_vimgrep_lines(results, '$tmp/project', {
+    '$tmp/project/src/new.lua:10:3:hit',
+    '$tmp/project/src/new.lua:10:5:duplicate same line',
+    '$tmp/project/.hg/origbackups/file.lua:4:1:hidden',
+    '$tmp/project-other/file.lua:5:1:outside',
+    '',
+  }, seen)
+  print(added)
+  print(table.concat(results, '\n'))
+")
+expected="$(printf '1\n%s\n%s' \
+  "$tmp/project/src/existing.lua:3:1:old" \
+  "$tmp/project/src/new.lua:10:3:hit")"
+_assert_eq "vimgrep policy: appends visible searchable lines with line dedup" \
+  "$expected" "$result"
+
+result=$(_nvim_lua '
+  local scope = require("nvim_workspace.picker.scope")
+  print(table.concat(scope.path_query_terms("  foo   bar/baz  "), "|"))
+  print(table.concat(scope.fd_query_args("foo bar"), "|"))
+  print(scope.unordered_path_regex("foo bar"))
+')
+expected="$(printf 'foo|bar/baz\n--and|bar|--|foo\nfoo.*bar|bar.*foo')"
+_assert_eq "path query policy: multi-word path searches are order independent" \
+  "$expected" "$result"
+
+result=$(_nvim_lua '
+  local scope = require("nvim_workspace.picker.scope")
+  local active = {}
+  local killed = 0
+  local canceled = 0
+  scope.add_active_handle(active, {
+    kill = function(_, signal)
+      killed = killed + signal
+    end,
+  })
+  scope.add_active_handle(active, function()
+    canceled = canceled + 1
+  end)
+  scope.add_active_handle(active, {
+    {
+      kill = function(_, signal)
+        killed = killed + (signal * 10)
+      end,
+    },
+    {
+      cancel = function()
+        canceled = canceled + 10
+      end,
+    },
+  })
+  print(#active)
+  for _, handle in ipairs(active) do
+    scope.cancel_handle(handle)
+  end
+  print(killed)
+  print(canceled)
+')
+expected="$(printf '4\n99\n11')"
+_assert_eq "async source policy: tracks and cancels returned handles" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local scope = require("nvim_workspace.picker.scope")
+  local status = scope.status({ line = "idle" })
+  print(status:title())
+  print(table.concat(status:box_lines(), "|"))
+  status:set("Local files: 3 found")
+  print(table.concat(status:box_lines(), "|"))
+  status:close()
+  status:set("Local files closed")
+  print(table.concat(status:box_lines(), "|"))
+')
+expected="$(printf 'Status\n  idle\n  Local files: 3 found\n  Local files: 3 found')"
+_assert_eq "search status policy: renders a single shared status line" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local scope = require("nvim_workspace.picker.scope")
+  local status = scope.status()
+  local ops = scope.operation_status(status)
+  print(table.concat(status:box_lines(), "|"))
+  ops:start("local", "Local files...")
+  print(table.concat(status:box_lines(), "|"))
+  ops:start("index", "Index search: 2 repos...")
+  print(table.concat(status:box_lines(), "|"))
+  ops:event("local", "Local files: 3 found")
+  print(table.concat(status:box_lines(), "|"))
+  ops:finish("local", "Local files complete")
+  print(table.concat(status:box_lines(), "|"))
+  ops:finish("index", "Index search complete")
+  print(table.concat(status:box_lines(), "|"))
+  ops:start("local", "Local files...")
+  ops:reset()
+  print(table.concat(status:box_lines(), "|"))
+')
+expected="$(printf '  idle\n  Local files...\n  Index search: 2 repos...\n  Local files: 3 found\n  Index search: 2 repos...\n  idle\n  idle')"
+_assert_eq "search status policy: keeps active operations visible over finished counts" \
+  "$expected" "$result"
+
+result=$(_nvim_lua '
+  local scope = require("nvim_workspace.picker.scope")
+  package.loaded["telescope.actions.state"] = {
+    get_current_picker = function()
+      error("picker closed")
+    end,
+  }
+  print(tostring(scope.current_picker(0)))
+')
+_assert_eq "telescope picker policy: closed picker state fails quiet" "nil" "$result"
+
+result=$(_nvim_lua '
+  local scope = require("nvim_workspace.picker.scope")
+  local calls = 0
+  package.loaded["telescope.actions.state"] = {
+    get_current_picker = function()
+      return {
+        results_win = 999999,
+        results_bufnr = 999999,
+      }
+    end,
+  }
+  package.loaded["flash"] = {
+    jump = function()
+      calls = calls + 1
+    end,
+  }
+  print(tostring(scope.telescope_flash(0)))
+  print(calls)
+')
+expected="$(printf 'false\n0')"
+_assert_eq "telescope flash policy: ignores dead picker windows" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local scope = require("nvim_workspace.picker.scope")
+  local results_bufnr = vim.api.nvim_create_buf(false, true)
+  local results_win = vim.api.nvim_open_win(results_bufnr, false, {
+    relative = "editor",
+    row = 1,
+    col = 1,
+    width = 20,
+    height = 5,
+  })
+  local selection = "nil"
+  local picker = {
+    results_win = results_win,
+    results_bufnr = results_bufnr,
+    set_selection = function(_, row)
+      selection = tostring(row)
+    end,
+  }
+  package.loaded["telescope.actions.state"] = {
+    get_current_picker = function()
+      return picker
+    end,
+  }
+  package.loaded["flash"] = {
+    jump = function(opts)
+      print(tostring(opts.search.exclude[1](results_win)))
+      print(tostring(opts.search.exclude[1](999999)))
+      opts.action({ win = 999999, pos = { 7, 0 } })
+      print(selection)
+      opts.action({ win = results_win, pos = { 7, 0 } })
+      print(selection)
+    end,
+  }
+  print(tostring(scope.telescope_flash(0)))
+  vim.api.nvim_win_close(results_win, true)
+')
+expected="$(printf 'false\ntrue\nnil\n6\ntrue')"
+_assert_eq "telescope flash policy: validates result window before acting" \
+  "$expected" "$result"
+
+result=$(_nvim_lua '
+  local scope = require("nvim_workspace.picker.scope")
+  package.loaded["telescope.actions"] = {
+    close = function() end,
+  }
+  package.loaded["telescope.actions.state"] = {
+    get_selected_entry = function()
+      return nil
+    end,
+  }
+  local mapped = {}
+  scope.attach_picker_mappings(0, function(mode, lhs)
+    mapped[mode .. lhs] = true
+  end, { open = function() end })
+  print(tostring(mapped["i<C-s>"]))
+  print(tostring(mapped["ns"]))
+  print(tostring(mapped["i<C-r>"]))
+  print(tostring(mapped["i<C-w>"]))
+  print(tostring(mapped["i<C-d>"]))
+  print(tostring(mapped["i<C-l>"]))
+  print(tostring(mapped["n<C-l>"]))
+')
+expected="$(printf 'true\ntrue\ntrue\ntrue\ntrue\nnil\nnil')"
+_assert_eq "telescope flash policy: overrides inherited flash mappings" "$expected" "$result"
+
+result=$(_nvim_lua "
+  local workspace = require('nvim_workspace.core.workspace')
+  local scope = require('nvim_workspace.picker.scope')
+  _G.in_large_repo = function(path, opts)
+    return opts ~= nil
+      and opts.search_root == true
+      and path == workspace.canonical('$tmp/project')
+  end
+  print(tostring(scope.is_large_search_root('$tmp/project')))
+  print(tostring(scope.is_large_search_root('$tmp/project/src')))
+")
+expected="$(printf 'true\nfalse')"
+_assert_eq "large roots: delegates to existing in_large_repo policy" "$expected" "$result"
+
+result=$(_nvim_lua "
+  local scope = require('nvim_workspace.picker.scope')
+  local filtered, seen = scope.filter_paths({
+    '$tmp/project/src/file.lua',
+    '$tmp/project/.config/app.lua',
+    '$tmp/project/.hg/origbackups/file.lua',
+    '$tmp/project-other/file.lua',
+    '$tmp/project/src/file.lua',
+  }, '$tmp/project')
+  print(#filtered)
+  print(table.concat(filtered, '\n'))
+  print(tostring(seen['$tmp/project/src/file.lua']))
+  print(tostring(seen['$tmp/project/.hg/origbackups/file.lua']))
+  print(tostring(seen['$tmp/project-other/file.lua']))
+")
+expected="$(printf '2\n%s\n%s\ntrue\nnil\nnil' \
+  "$tmp/project/src/file.lua" \
+  "$tmp/project/.config/app.lua")"
+_assert_eq "filter_paths: filters scoped paths and VCS metadata" "$expected" "$result"
+
+result=$(_nvim_lua "
+  local scope = require('nvim_workspace.picker.scope')
+  print(tostring(scope.is_searchable_path('$tmp/project/.config/app.lua')))
+  print(tostring(scope.is_searchable_path('$tmp/project/.hg/origbackups/file.lua')))
+  print(table.concat(scope.vcs_exclude_args(), ','))
+")
+expected="$(printf 'true\nfalse\n--exclude,.git,--exclude,.hg,--exclude,.jj,--exclude,.sl,--exclude,.svn')"
+_assert_eq "searchable_path: excludes VCS metadata but keeps dotfiles" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local scope = require("nvim_workspace.picker.scope")
+  print(scope.vimgrep_path("/tmp/project/file.lua:10:3:hit"))
+  print(scope.vimgrep_path("/tmp/project/file.lua:10:hit"))
+')
+expected="$(printf '/tmp/project/file.lua\n/tmp/project/file.lua')"
+_assert_eq "vimgrep_path: extracts file from ripgrep lines" "$expected" "$result"
+
+result=$(_nvim_lua "
+  local scope = require('nvim_workspace.picker.scope')
+  print(scope.visible_vimgrep_line(
+    '$tmp/home/project',
+    '$tmp/data/project/src/file.lua:10:3:hit'
+  ))
+  print(tostring(scope.visible_vimgrep_line(
+    '$tmp/home/project',
+    '$tmp/project-other/file.lua:10:3:hit'
+  )))
+")
+expected="$(printf '%s\nnil' "$tmp/home/project/src/file.lua:10:3:hit")"
+_assert_eq "visible_vimgrep_line: maps canonical lines back under selected root" \
+  "$expected" "$result"
+
+echo ""
+echo "=== files picker helpers ==="
+
+result=$(_nvim_lua '
+  local probes = 0
+  package.loaded["nvim_workspace.core.workspace"] = {
+    normalize = function(path)
+      return path
+    end,
+    current_buffer_dir = function()
+      return "/home/me/repo/src"
+    end,
+    find_repo_root = function()
+      probes = probes + 1
+      return "/home/me/repo"
+    end,
+    default_root = function()
+      return "/home/me"
+    end,
+  }
+  package.loaded["nvim_workspace.picker.scope"] = nil
+  package.loaded["nvim_workspace.picker.files"] = nil
+  local files = require("nvim_workspace.picker.files")
+  local root, context_root = files.resolve_root({})
+  print(root)
+  print(context_root)
+  print(probes)
+')
+expected="$(printf '/home/me\n/home/me/repo/src\n0')"
+_assert_eq "resolve_root: default file finder searches home without repo anchoring" \
+  "$expected" "$result"
+
+result=$(_nvim_lua '
+  local files = require("nvim_workspace.picker.files")
+  local r = files.merge_results({"a", "b"}, { a = true, b = true }, nil)
+  print(table.concat(r, ","))
+')
+_assert_eq "merge_results: no extras returns recent" "a,b" "$result"
+
+result=$(_nvim_lua '
+  local files = require("nvim_workspace.picker.files")
+  local r = files.merge_results({"a", "b"}, { a = true, b = true }, {"c", "a", "d"})
+  print(table.concat(r, ","))
+')
+_assert_eq "merge_results: extras appended and deduped" "a,b,c,d" "$result"
+
+result=$(_nvim_lua '
+  local files = require("nvim_workspace.picker.files")
+  local r = files.merge_results({"a"}, { a = true, x = true }, {"x", "y"})
+  print(table.concat(r, ","))
+')
+_assert_eq "merge_results: extras deduped against recent_set" "a,y" "$result"
+
+result=$(_nvim_lua '
+  local files = require("nvim_workspace.picker.files")
+  local r = files.merge_results({}, {}, {"a", "a", "b"})
+  print(table.concat(r, ","))
+')
+_assert_eq "merge_results: duplicate extras collapsed" "a,b" "$result"
+
+result=$(_nvim_lua '
+  local files = require("nvim_workspace.picker.files")
+  local r = files.merge_results({}, {}, {"a", "b"})
+  print(table.concat(r, ","))
+')
+_assert_eq "merge_results: works with empty recent" "a,b" "$result"
+
+result=$(_nvim_lua '
+  package.loaded["nvim_workspace.core.workspace"] = {
+    normalize = function(path)
+      return path
+    end,
+    visible_path = function(root, path)
+      if path:sub(1, #root + 1) == root .. "/" then
+        return path
+      end
+      return nil
+    end,
+    absolute_path = function(path)
+      return path
+    end,
+  }
+  package.loaded["nvim_workspace.picker.scope"] = nil
+  package.loaded["nvim_workspace.picker.files"] = nil
+  local files = require("nvim_workspace.picker.files")
+  local extra = { "/home/me/old.lua" }
+  local added = files.add_results(extra, "/home/me", {
+    "/home/me/src/new.lua",
+    "/home/me/.git/config",
+    "/other/outside.lua",
+    "",
+  })
+  print(added)
+  print(table.concat(extra, ","))
+')
+expected="$(printf '1\n/home/me/old.lua,/home/me/src/new.lua')"
+_assert_eq "add_results: appends visible searchable results immediately" \
+  "$expected" "$result"
+
+result=$(_nvim_lua '
+  local files = require("nvim_workspace.picker.files")
+  print(#files.sources)
+  local fn1 = function() end
+  local fn2 = function() end
+  files.add_source(fn1)
+  files.add_source(fn2, { name = "Index search" })
+  print(#files.sources)
+  print(files.sources[1].run == fn1)
+  print(files.sources[1].name)
+  print(files.sources[2].run == fn2)
+  print(files.sources[2].name)
+')
+expected="$(printf '0\n2\ntrue\nExtension\ntrue\nIndex search')"
+_assert_eq "file sources: accumulate with display names" "$expected" "$result"
+
+echo ""
+echo "=== grep picker helpers ==="
+
+result=$(_nvim_lua '
+  local grep = require("nvim_workspace.picker.grep")
+  local r = grep.dedup_lines({
+    "foo.lua:10:hello",
+    "bar.lua:20:world",
+    "foo.lua:10:hello again",
+  })
+  print(#r)
+  print(r[1])
+  print(r[2])
+')
+expected="$(printf '2\nfoo.lua:10:hello\nbar.lua:20:world')"
+_assert_eq "dedup_lines: same file:line keeps first" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local grep = require("nvim_workspace.picker.grep")
+  local r = grep.dedup_lines({"a:1:x", "", "b:2:y", ""})
+  print(#r)
+')
+_assert_eq "dedup_lines: empty lines filtered" "2" "$result"
+
+result=$(_nvim_lua '
+  local grep = require("nvim_workspace.picker.grep")
+  local r = grep.dedup_lines({"no-format", "no-format", "other"})
+  print(table.concat(r, ","))
+')
+_assert_eq "dedup_lines: whole line key fallback" "no-format,other" "$result"
+
+result=$(_nvim_lua '
+  local grep = require("nvim_workspace.picker.grep")
+  local r = grep.dedup_lines({"a:1:x", "b:2:y", "c:3:z"})
+  print(#r)
+')
+_assert_eq "dedup_lines: no duplicates pass through" "3" "$result"
+
+result=$(_nvim_lua '
+  local grep = require("nvim_workspace.picker.grep")
+  local r = grep.dedup_lines({})
+  print(#r)
+')
+_assert_eq "dedup_lines: empty input" "0" "$result"
+
+result=$(_nvim_lua '
+  local grep = require("nvim_workspace.picker.grep")
+  print(#grep.sources)
+  local fn1 = function() end
+  local fn2 = function() end
+  grep.add_source(fn1)
+  grep.add_source(fn2, { name = "Index search" })
+  print(#grep.sources)
+  print(grep.sources[1].run == fn1)
+  print(grep.sources[1].name)
+  print(grep.sources[2].run == fn2)
+  print(grep.sources[2].name)
+')
+expected="$(printf '0\n2\ntrue\nExtension\ntrue\nIndex search')"
+_assert_eq "grep sources: accumulate with display names" "$expected" "$result"

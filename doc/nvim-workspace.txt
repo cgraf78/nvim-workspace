@@ -1,0 +1,80 @@
+*nvim-workspace.txt*        Workspace-aware file and grep pickers
+
+==============================================================================
+CONTENTS                                      *nvim-workspace*
+
+1. Overview                         |nvim-workspace-overview|
+2. Setup                            |nvim-workspace-setup|
+3. Commands                         |nvim-workspace-commands|
+4. API                              |nvim-workspace-api|
+
+==============================================================================
+OVERVIEW                                      *nvim-workspace-overview*
+
+nvim-workspace provides workspace-aware file and content search for Neovim.
+It keeps path/root policy in one place, then exposes Telescope-backed file and
+grep pickers built on that policy.
+
+The default behavior is intentionally broad: file and grep pickers search from
+HOME unless a caller passes an explicit root. Users can switch root from inside
+the picker without changing Neovim's process cwd.
+
+==============================================================================
+SETUP                                             *nvim-workspace-setup*
+>
+  require("nvim_workspace").setup({
+    large_root_detector = function(root, opts)
+      return false
+    end,
+  })
+<
+Options:
+
+                                                        *nvim-workspace-large_root_detector*
+large_root_detector ~
+  Optional function called as `fn(root, opts)`. Return true when broad scans
+  should be suppressed for that root. When unset, nvim-workspace falls back to
+  a global `in_large_repo` function for compatibility with existing configs.
+
+==============================================================================
+COMMANDS                                       *nvim-workspace-commands*
+
+                                                        *:WorkspaceFiles*
+:WorkspaceFiles [dir] ~
+  Open the workspace file picker. When [dir] is supplied, use it as the search
+  root.
+
+                                                        *:WorkspaceGrep*
+:WorkspaceGrep [dir] ~
+  Open the workspace grep picker. When [dir] is supplied, use it as the search
+  root.
+
+==============================================================================
+API                                                 *nvim-workspace-api*
+
+                                                        *nvim_workspace.setup()*
+setup({opts}) ~
+  Configure plugin behavior.
+
+                                                        *nvim_workspace.files()*
+files({opts}) ~
+  Open the file picker.
+
+                                                        *nvim_workspace.grep()*
+grep({opts}) ~
+  Open the grep picker.
+
+                                                        *nvim_workspace.register_file_source()*
+register_file_source({source}, {opts}) ~
+  Register an additional file source.
+
+                                                        *nvim_workspace.register_grep_source()*
+register_grep_source({source}, {opts}) ~
+  Register an additional grep source. Sources should return ripgrep
+  `--vimgrep` style lines.
+
+                                                        *nvim_workspace.repo_root()*
+repo_root({start}) ~
+  Return the detected workspace root for {start}, or a normalized fallback.
+
+vim:tw=78:ts=8:ft=help:norl:

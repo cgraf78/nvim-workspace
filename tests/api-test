@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+
+set -o pipefail
+
+# shellcheck source=tests/helpers.sh
+. "$(dirname "$0")/helpers.sh"
+
+echo "=== public api ==="
+
+result=$(_nvim_lua '
+  local workspace = require("nvim_workspace")
+  print(type(workspace.setup))
+  print(type(workspace.files))
+  print(type(workspace.grep))
+  print(type(workspace.workspace))
+  print(type(workspace.repo_root))
+')
+expected="$(printf 'function\nfunction\nfunction\nfunction\nfunction')"
+_assert_eq "api: exposes setup, picker, and workspace entrypoints" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local workspace = require("nvim_workspace")
+  local files_fn = function() end
+  local grep_fn = function() end
+  workspace.register_file_source(files_fn, { name = "Files index" })
+  workspace.register_grep_source(grep_fn, { name = "Grep index" })
+  local files = require("nvim_workspace.picker.files")
+  local grep = require("nvim_workspace.picker.grep")
+  print(files.sources[1].run == files_fn)
+  print(files.sources[1].name)
+  print(grep.sources[1].run == grep_fn)
+  print(grep.sources[1].name)
+')
+expected="$(printf 'true\nFiles index\ntrue\nGrep index')"
+_assert_eq "api: source registration delegates to picker modules" "$expected" "$result"
+
+result=$(_nvim_lua '
+  require("nvim_workspace").setup({
+    large_root_detector = function(path, opts)
+      print(path)
+      print(tostring(opts and opts.search_root))
+      return path == "/tmp/large"
+    end,
+  })
+  _G.in_large_repo = function()
+    error("global detector should not be used when setup detector exists")
+  end
+  local workspace = require("nvim_workspace.core.workspace")
+  print(tostring(workspace.is_large_repo("/tmp/large", { search_root = true })))
+')
+expected="$(printf '/tmp/large\ntrue\ntrue')"
+_assert_eq "api: setup large_root_detector overrides global detector" "$expected" "$result"
+
+result=$(_nvim_lua '
+  vim.cmd("runtime plugin/nvim-workspace.lua")
+  local commands = vim.api.nvim_get_commands({})
+  print(type(commands.WorkspaceFiles))
+  print(type(commands.WorkspaceGrep))
+')
+expected="$(printf 'table\ntable')"
+_assert_eq "plugin: registers workspace picker commands lazily" "$expected" "$result"

@@ -1,0 +1,386 @@
+#!/usr/bin/env bash
+
+set -o pipefail
+
+# shellcheck source=tests/helpers.sh
+. "$(dirname "$0")/helpers.sh"
+
+echo "=== workspace: root and path policy ==="
+
+result=$(_nvim_lua '
+  local workspace = require("nvim_workspace.core.workspace")
+  print(workspace.default_root())
+  print(type(workspace.repo_root))
+  print(type(workspace.find_vcs_root))
+')
+expected="$(printf '%s\nfunction\nfunction' "$HOME")"
+_assert_eq "workspace: exposes shared root helpers" "$expected" "$result"
+
+tmp=$(_tmpdir)
+mkdir -p "$tmp/project/src" "$tmp/project-other" "$tmp/project/.hg/origbackups"
+mkdir -p "$tmp/project/.config" "$tmp/outside" "$tmp/home" "$tmp/data/project/src"
+touch "$tmp/project/src/file.lua" "$tmp/project-other/file.lua"
+touch "$tmp/project/.hg/origbackups/file.lua" "$tmp/project/.config/app.lua"
+touch "$tmp/outside/target.lua" "$tmp/data/project/src/file.lua"
+ln -s "$tmp/project" "$tmp/project-link"
+ln -s "$tmp/outside/target.lua" "$tmp/project/src/link.lua"
+ln -s "$tmp/data/project" "$tmp/home/project"
+project_real=$(_realpath "$tmp/project")
+
+result=$(_nvim_lua "
+  local workspace = require('nvim_workspace.core.workspace')
+  print(workspace.normalize('$tmp/project/src/file.lua'))
+")
+_assert_eq "normalize: file path scopes to parent directory" "$tmp/project/src" "$result"
+
+result=$(_nvim_lua "
+  local workspace = require('nvim_workspace.core.workspace')
+  local root = '$tmp/project'
+  print(tostring(workspace.contains(root, '$tmp/project/src/file.lua')))
+  print(tostring(workspace.contains(root, '$tmp/project')))
+  print(tostring(workspace.contains(root, '$tmp/project-other/file.lua')))
+")
+expected="$(printf 'true\ntrue\nfalse')"
+_assert_eq "contains: respects path boundaries" "$expected" "$result"
+
+result=$(_nvim_lua "
+  local workspace = require('nvim_workspace.core.workspace')
+  local root = '$tmp/project'
+  print(workspace.relative_path(root, '$tmp/project/src/file.lua'))
+  local same = workspace.relative_path(root, '$tmp/project')
+  print(same == '' and '<empty>' or tostring(same))
+  print(tostring(workspace.relative_path(root, '$tmp/project-other/file.lua')))
+")
+expected="$(printf 'src/file.lua\n<empty>\nnil')"
+_assert_eq "relative_path: computes repo-relative scoped paths" "$expected" "$result"
+
+result=$(_nvim_lua "
+  local workspace = require('nvim_workspace.core.workspace')
+  print(tostring(workspace.contains('$tmp/project', '$tmp/project-link/src/file.lua')))
+  print(workspace.relative_path('$tmp/project', '$tmp/project-link/src/file.lua'))
+")
+expected="$(printf 'true\nsrc/file.lua')"
+_assert_eq "canonical paths: symlinked roots compare by real path" "$expected" "$result"
+
+result=$(_nvim_lua "
+  local workspace = require('nvim_workspace.core.workspace')
+  print(tostring(workspace.contains('$tmp/home', '$tmp/home/project/src/file.lua')))
+")
+_assert_eq "contains: keeps visible symlink paths under parent root" "true" "$result"
+
+result=$(_nvim_lua "
+  local workspace = require('nvim_workspace.core.workspace')
+  local visible = workspace.visible_path('$tmp/home/project', '$tmp/data/project/src/file.lua')
+  print(visible)
+")
+_assert_eq "visible_path: maps canonical paths back under selected visible root" \
+  "$tmp/home/project/src/file.lua" "$result"
+
+result=$(_nvim_lua "
+  local workspace = require('nvim_workspace.core.workspace')
+  print(workspace.visible_relative_path('$tmp/project', '$tmp/project/src/link.lua'))
+")
+_assert_eq "visible_relative_path: keeps tracked symlink spelling" "src/link.lua" "$result"
+
+result=$(_nvim_lua "
+  local workspace = require('nvim_workspace.core.workspace')
+  local same = workspace.visible_relative_path('$tmp/project', '$tmp/project')
+  print(same == '' and '<empty>' or tostring(same))
+  print(tostring(workspace.visible_relative_path('$tmp/project', '$tmp/project-other/file.lua')))
+  print(workspace.visible_relative_path('$tmp/home/project', '$tmp/data/project/src/file.lua'))
+")
+expected="$(printf '<empty>\nnil\nsrc/file.lua')"
+_assert_eq "visible_relative_path: handles root, outside, and canonical aliases" \
+  "$expected" "$result"
+
+result=$(_nvim_lua "
+  vim.env.HOME = '$tmp/home'
+  package.loaded['nvim_workspace.core.workspace'] = nil
+  local workspace = require('nvim_workspace.core.workspace')
+  vim.api.nvim_command('edit $tmp/data/project/src/file.lua')
+  print(workspace.current_buffer_dir())
+")
+_assert_eq "current_buffer_dir: prefers visible HOME aliases" "$tmp/home/project/src" "$result"
+
+project_src_real=$(_realpath "$tmp/project/src")
+result=$(_nvim_lua "
+  local workspace = require('nvim_workspace.core.workspace')
+  vim.api.nvim_command('edit $tmp/project/src/new-file.lua')
+  print(workspace.current_buffer_dir())
+  print(workspace.repo_root())
+")
+expected="$(printf '%s\n%s' "$project_src_real" "$project_src_real")"
+_assert_eq "current_buffer_dir: new files use parent directory" "$expected" "$result"
+
+result=$(_nvim_lua "
+  vim.env.HOME = '$tmp/home'
+  package.loaded['nvim_workspace.core.workspace'] = nil
+  local workspace = require('nvim_workspace.core.workspace')
+  vim.api.nvim_command('edit $tmp/data/project/src/new-file.lua')
+  print(workspace.current_buffer_dir())
+")
+_assert_eq "current_buffer_dir: new files keep visible HOME aliases" "$tmp/home/project/src" "$result"
+
+result=$(_nvim_lua "
+  local workspace = require('nvim_workspace.core.workspace')
+  vim.api.nvim_command('cd $tmp/project')
+  vim.api.nvim_command('new')
+  vim.bo.buftype = 'nofile'
+  print(tostring(workspace.current_file_dir()))
+  print(workspace.current_buffer_dir())
+")
+expected="$(printf 'nil\n%s' "$project_real")"
+_assert_eq "current_file_dir: nofile buffers do not fall back to cwd" "$expected" "$result"
+
+result=$(_nvim_lua "
+  local workspace = require('nvim_workspace.core.workspace')
+  vim.api.nvim_command('cd $tmp/project')
+  vim.api.nvim_command('new')
+  vim.bo.buftype = 'nofile'
+  vim.bo.filetype = 'neo-tree'
+  vim.api.nvim_buf_set_name(0, '$tmp/project/neo-tree filesystem [1]')
+  print(workspace.current_buffer_dir())
+")
+_assert_eq "current_buffer_dir: ignores synthetic neo-tree buffer names" "$project_real" "$result"
+
+result=$(_nvim_lua "
+  vim.env.HOME = '$tmp/home'
+  package.loaded['nvim_workspace.core.workspace'] = nil
+  local workspace = require('nvim_workspace.core.workspace')
+  local input_opts
+  vim.ui.input = function(opts, callback)
+    input_opts = opts
+    callback('$tmp/project/src')
+  end
+  local opened
+  workspace.prompt_for_dir('$tmp/home', function(root)
+    opened = root
+  end, { prompt = 'Custom root: ' })
+  vim.wait(1000, function()
+    return opened ~= nil
+  end)
+  print(input_opts.prompt)
+  print(input_opts.default)
+  print(input_opts.completion)
+  print(opened)
+")
+expected="$(printf 'Custom root: \n~\ndir\n%s' "$tmp/project/src")"
+_assert_eq "prompt_for_dir: normalizes scheduled directory input for scoped widgets" \
+  "$expected" "$result"
+
+result=$(_nvim_lua '
+  local workspace = require("nvim_workspace.core.workspace")
+  print(workspace.display(vim.env.HOME .. "/git/repo"))
+')
+# shellcheck disable=SC2088 # The expected display string intentionally contains "~".
+_assert_eq "display: abbreviates HOME" "~/git/repo" "$result"
+
+echo ""
+echo "=== workspace: repo root detection ==="
+
+result=$(_nvim_lua "
+  local workspace = require('nvim_workspace.core.workspace')
+  local path = '$tmp/project'
+  print(tostring(workspace.find_repo_root(path)))
+  print(workspace.repo_root(path))
+")
+expected="$(printf 'nil\n%s' "$tmp/project")"
+_assert_eq "repo_root: distinguishes unsupported repo from fallback" "$expected" "$result"
+
+vcs_bin=$(_tmpdir)
+cat >"$vcs_bin/sley" <<EOF
+#!/usr/bin/env sh
+cwd=\$(pwd -P)
+case "\$cwd" in
+  "$project_real"|"$project_real"/*)
+    printf '{"repo_type":"git","root":"%s","ref":"main","counts":{"staged":0,"pending":0,"unstaged":0,"untracked":0},"dirty":false}\n' "$project_real"
+    exit 0
+    ;;
+esac
+printf '%s\n' 'sley: unsupported repo' >&2
+exit 2
+EOF
+chmod +x "$vcs_bin/sley"
+
+result=$(PATH="$vcs_bin:$PATH" _nvim_lua "
+  local workspace = require('nvim_workspace.core.workspace')
+  local path = '$tmp/project/src/file.lua'
+  print(workspace.find_vcs_root(path))
+  print(workspace.find_repo_root(path))
+  print(workspace.repo_root(path))
+")
+expected="$(printf '%s\n%s\n%s' "$project_real" "$project_real" "$project_real")"
+_assert_eq "repo_root: exposes sley-backed vcs root before fallback" "$expected" "$result"
+
+real_git_bin=$(_tmpdir)
+cat >"$real_git_bin/sley" <<EOF
+#!/usr/bin/env sh
+if [ "\${DOT_GIT_REAL:-}" != "1" ]; then
+  printf '%s\n' 'expected DOT_GIT_REAL=1' >&2
+  exit 2
+fi
+if [ "\${SLEY_SKIP_BARE_REPO_FALLBACK:-}" != "1" ]; then
+  printf '%s\n' 'expected SLEY_SKIP_BARE_REPO_FALLBACK=1' >&2
+  exit 2
+fi
+printf '{"repo_type":"git","root":"%s","ref":"main","counts":{"staged":0,"pending":0,"unstaged":0,"untracked":0},"dirty":false}\n' "$project_real"
+EOF
+chmod +x "$real_git_bin/sley"
+
+result=$(PATH="$real_git_bin:$PATH" _nvim_lua "
+  local workspace = require('nvim_workspace.core.workspace')
+  print(workspace.find_vcs_root('$tmp/project/src/file.lua'))
+")
+_assert_eq "repo_root: sley probe skips dotfiles home fallback" "$project_real" "$result"
+
+result=$(_nvim_lua "
+  local workspace = require('nvim_workspace.core.workspace')
+  local path = '$tmp/missing-dir'
+  print(tostring(workspace.find_repo_root(path)))
+  print(workspace.repo_root(path))
+")
+expected="$(printf 'nil\n%s' "$tmp/missing-dir")"
+_assert_eq "repo_root: missing cwd falls back without error" "$expected" "$result"
+
+empty_bin=$(_tmpdir)
+result=$(_nvim_lua "
+  local old_path = vim.env.PATH
+  vim.env.PATH = '$empty_bin'
+  local workspace = require('nvim_workspace.core.workspace')
+  local path = '$tmp/project/src'
+  print(tostring(workspace.find_vcs_root(path)))
+  print(tostring(workspace.find_repo_root(path)))
+  print(workspace.repo_root(path))
+  vim.env.PATH = old_path
+")
+expected="$(printf 'nil\nnil\n%s' "$tmp/project/src")"
+_assert_eq "repo_root: missing sley commands fail closed" "$expected" "$result"
+
+bad_json_bin=$(_tmpdir)
+cat >"$bad_json_bin/sley" <<'EOF'
+#!/usr/bin/env sh
+printf '%s\n' 'not-json'
+exit 0
+EOF
+chmod +x "$bad_json_bin/sley"
+
+result=$(_nvim_lua "
+  local old_path = vim.env.PATH
+  vim.env.PATH = '$bad_json_bin'
+  local workspace = require('nvim_workspace.core.workspace')
+  local path = '$tmp/project/src'
+  print(tostring(workspace.find_vcs_root(path)))
+  print(tostring(workspace.find_repo_root(path)))
+  print(workspace.repo_root(path))
+  vim.env.PATH = old_path
+")
+expected="$(printf 'nil\nnil\n%s' "$tmp/project/src")"
+_assert_eq "repo_root: malformed sley JSON fails closed" "$expected" "$result"
+
+dot_home=$(_tmpdir)
+mkdir -p "$dot_home/.config/sley/verify.d" "$dot_home/.dotfiles"
+dot_bin=$(_tmpdir)
+cat >"$dot_bin/sley" <<'EOF'
+#!/usr/bin/env sh
+if [ "$1" = "status" ] && [ "$2" = "--json" ]; then
+  if [ "${SLEY_SKIP_BARE_REPO_FALLBACK:-}" = "1" ]; then
+    printf '%s\n' 'sley: unsupported repo' >&2
+    exit 2
+  fi
+  if [ "${DOT_GIT_REAL:-}" != "1" ]; then
+    printf '%s\n' 'sley: expected DOT_GIT_REAL=1' >&2
+    exit 2
+  fi
+  if [ -z "${SLEY_BARE_REPO_GIT_DIR:-}" ] || [ -z "${SLEY_BARE_REPO_WORK_TREE:-}" ]; then
+    printf '%s\n' 'sley: missing bare repo fallback env' >&2
+    exit 2
+  fi
+  printf '{"repo_type":"git","root":"%s","ref":"main","counts":{"staged":0,"pending":0,"unstaged":0,"untracked":0},"dirty":false}\n' "$HOME"
+  exit 0
+fi
+exit 2
+EOF
+chmod +x "$dot_bin/sley"
+
+result=$(PATH="$dot_bin:$PATH" _nvim_lua "
+  vim.env.HOME = '$dot_home'
+  package.loaded['nvim_workspace.core.workspace'] = nil
+  local workspace = require('nvim_workspace.core.workspace')
+  print(workspace.repo_root('$dot_home/.config/sley/verify.d'))
+")
+_assert_eq "repo_root: detects bare dotfiles root through sley launcher" "$dot_home" "$result"
+
+perf_home=$(_tmpdir)
+mkdir -p "$perf_home/.dotfiles" "$perf_home/.config/shell"
+touch "$perf_home/.bashrc"
+perf_bin=$(_tmpdir)
+cat >"$perf_bin/sley" <<'EOF'
+#!/usr/bin/env sh
+if [ "${DOT_GIT_REAL:-}" != "1" ]; then
+  sleep 1.2
+fi
+if [ "$1" = "status" ] && [ "$2" = "--json" ]; then
+  if [ "${SLEY_SKIP_BARE_REPO_FALLBACK:-}" = "1" ]; then
+    printf '%s\n' 'sley: unsupported repo' >&2
+    exit 2
+  fi
+  printf '{"repo_type":"git","root":"%s","ref":"main","counts":{"staged":0,"pending":0,"unstaged":0,"untracked":0},"dirty":false}\n' "$HOME"
+  exit 0
+fi
+exit 2
+EOF
+chmod +x "$perf_bin/sley"
+
+result=$(PATH="$perf_bin:$PATH" _nvim_lua "
+  vim.env.HOME = '$perf_home'
+  package.loaded['nvim_workspace.core.workspace'] = nil
+  local workspace = require('nvim_workspace.core.workspace')
+  local start = vim.uv.hrtime()
+  local root = workspace.repo_root('$perf_home/.bashrc')
+  local elapsed_ms = math.floor((vim.uv.hrtime() - start) / 1000000)
+  print('root=' .. root)
+  print('elapsed_ms=' .. elapsed_ms)
+  print('fast=' .. tostring(elapsed_ms < 1000))
+")
+_assert_contains "repo_root perf: dotfiles fallback resolves intended root" \
+  "root=$perf_home" "$result"
+_assert_contains "repo_root perf: root probes bypass dotfiles git launcher latency" \
+  "fast=true" "$result"
+
+echo ""
+echo "=== workspace: large root policy ==="
+
+result=$(_nvim_lua "
+  local workspace = require('nvim_workspace.core.workspace')
+  local calls = {}
+  _G.in_large_repo = function(path, opts)
+    calls[#calls + 1] = {
+      path = path,
+      search_root = opts and opts.search_root or false,
+    }
+    return path == workspace.canonical('$tmp/project') and opts ~= nil and opts.search_root == true
+  end
+  print(tostring(workspace.is_large_repo('$tmp/project-link', { search_root = true })))
+  print(tostring(workspace.is_large_repo('$tmp/project/src', { search_root = true })))
+  print(calls[1].path)
+  print(tostring(calls[1].search_root))
+")
+expected="$(printf 'true\nfalse\n%s\ntrue' "$project_real")"
+_assert_eq "large roots: workspace delegates to in_large_repo policy" "$expected" "$result"
+
+result=$(_nvim_lua "
+  local workspace = require('nvim_workspace.core.workspace')
+  local seen_path = nil
+  local seen_opts = nil
+  _G.in_large_repo = function(path, opts)
+    seen_path = path
+    seen_opts = opts
+    return true
+  end
+  print(tostring(workspace.is_large_repo('$tmp/project-link', { canonical = false })))
+  print(seen_path)
+  print(tostring(seen_opts))
+")
+expected="$(printf 'true\n%s\nnil' "$tmp/project-link")"
+_assert_eq "large roots: workspace preserves explicit roots without leaking private opts" \
+  "$expected" "$result"

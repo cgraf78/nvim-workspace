@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+
+set -o pipefail
+
+# shellcheck source=tests/helpers.sh
+. "$(dirname "$0")/helpers.sh"
+
+echo "=== recent: merge ==="
+
+result=$(_nvim_lua '
+  local recent = require("nvim_workspace.core.recent")
+  local r = recent.merge({"a", "b", "c"}, {}, function() return true end)
+  print(table.concat(r, ","))
+')
+_assert_eq "session only: preserves order" "a,b,c" "$result"
+
+result=$(_nvim_lua '
+  local recent = require("nvim_workspace.core.recent")
+  local r = recent.merge({"a", "b", "a"}, {}, function() return true end)
+  print(table.concat(r, ","))
+')
+_assert_eq "session dedup: removes duplicate" "a,b" "$result"
+
+result=$(_nvim_lua '
+  local recent = require("nvim_workspace.core.recent")
+  local r = recent.merge({"a", "b"}, {"c", "b", "d"}, function() return true end)
+  print(table.concat(r, ","))
+')
+_assert_eq "merge: session first, oldfiles appended, deduped" "a,b,c,d" "$result"
+
+result=$(_nvim_lua '
+  local recent = require("nvim_workspace.core.recent")
+  local r = recent.merge({}, {"exists", "gone", "also_exists"}, function(f)
+    return f ~= "gone"
+  end)
+  print(table.concat(r, ","))
+')
+_assert_eq "merge: exists_fn filters oldfiles" "exists,also_exists" "$result"
+
+result=$(_nvim_lua '
+  local recent = require("nvim_workspace.core.recent")
+  local session = {}
+  for i = 1, 3 do session[i] = "s" .. i end
+  local old = {}
+  for i = 1, 10 do old[i] = "o" .. i end
+  local r = recent.merge(session, old, function() return true end, 5)
+  print(#r)
+')
+_assert_eq "merge: cap limits total" "5" "$result"
+
+result=$(_nvim_lua '
+  local recent = require("nvim_workspace.core.recent")
+  local session = {}
+  for i = 1, 10 do session[i] = "s" .. i end
+  local r = recent.merge(session, {"o1"}, function() return true end, 5)
+  print(#r)
+')
+_assert_eq "merge: session exceeds cap while oldfiles are capped" "10" "$result"
+
+result=$(_nvim_lua '
+  local recent = require("nvim_workspace.core.recent")
+  local r = recent.merge({}, {}, function() return true end)
+  print(#r)
+')
+_assert_eq "merge: empty inputs" "0" "$result"
+
+echo ""
+echo "=== recent: get ==="
+
+tmp_a=$(_tmpdir)/a.lua
+tmp_b=$(_tmpdir)/b.lua
+touch "$tmp_a" "$tmp_b"
+
+result=$(_nvim_lua "
+  local recent = require('nvim_workspace.core.recent')
+  vim.v.oldfiles = {'$tmp_a', '$tmp_b', '/nonexistent/file.lua'}
+  local results, seen = recent.get()
+  print(#results)
+  print(tostring(seen['$tmp_a']))
+  print(tostring(seen['/nonexistent/file.lua']))
+")
+expected="$(printf '2\ntrue\nnil')"
+_assert_eq "get: returns existing oldfiles, filters missing" "$expected" "$result"
+
+result=$(_nvim_lua "
+  local recent = require('nvim_workspace.core.recent')
+  vim.v.oldfiles = {'$tmp_a'}
+  local r1 = recent.get()
+  local r2 = recent.get()
+  print(tostring(r1 == r2))
+")
+_assert_eq "get: second call returns cached table" "true" "$result"
+
+result=$(_nvim_lua "
+  local recent = require('nvim_workspace.core.recent')
+  vim.v.oldfiles = {'$tmp_a'}
+  local results, seen = recent.get()
+  print(type(results))
+  print(type(seen))
+  print(results[1] == '$tmp_a')
+  print(seen['$tmp_a'] == true)
+")
+expected="$(printf 'table\ntable\ntrue\ntrue')"
+_assert_eq "get: returns list and set" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local recent = require("nvim_workspace.core.recent")
+  vim.v.oldfiles = {}
+  local results = recent.get()
+  print(#results)
+')
+_assert_eq "get: empty oldfiles returns empty list" "0" "$result"
+
+cap_tmp=$(_tmpdir)
+for i in $(seq 1 205); do
+  printf 'print("%s")\n' "$i" >"$cap_tmp/file-$i.lua"
+done
+
+result=$(_nvim_lua "
+  local recent = require('nvim_workspace.core.recent')
+  vim.v.oldfiles = {}
+  for i = 1, 205 do
+    vim.cmd('edit ' .. vim.fn.fnameescape('$cap_tmp/file-' .. i .. '.lua'))
+  end
+  local results, seen = recent.get()
+  print(#results)
+  print(results[1]:match('file%-205%.lua') ~= nil)
+  print(tostring(seen['$cap_tmp/file-1.lua']))
+")
+expected="$(printf '200\ntrue\nnil')"
+_assert_eq "get: session MRU is bounded for large buffer sets" "$expected" "$result"
