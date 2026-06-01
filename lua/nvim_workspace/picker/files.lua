@@ -9,6 +9,9 @@
 -- Picker mappings restart with a different explicit root instead of changing
 -- nvim's cwd, which avoids surprising other editor features.
 -- Scope controls: C-r home, C-w repo/workspace root, C-d prompt for directory.
+--
+-- Internal module: use require("nvim_workspace").files() and
+-- require("nvim_workspace").register_file_source() from host configs.
 
 local M = {}
 
@@ -18,6 +21,9 @@ function M.merge_results(recent, recent_set, extra)
   if not extra or #extra == 0 then
     return recent
   end
+  -- Recent files stay pinned first even as live sources arrive. The separate
+  -- recent_set prevents a backend result from repeating a recent path that was
+  -- filtered out of this root's visible list.
   local all = {}
   local seen = {}
   local n = 0
@@ -78,6 +84,8 @@ function M.find(opts)
   local conf = require("telescope.config").values
   local make_entry = require("telescope.make_entry")
   local root, context_root = M.resolve_root(opts)
+  -- Large roots still get recent-file and extension results, but local fd is a
+  -- recursive filesystem walk. Host policy decides when that tradeoff is bad.
   local use_fd = not scope.is_large_search_root(root)
 
   if not fd_cmd then
@@ -88,6 +96,8 @@ function M.find(opts)
   local entry_maker = make_entry.gen_from_file({})
 
   local function make_finder(extra)
+    -- Telescope table finders are immutable snapshots. Each async batch creates
+    -- a fresh finder so the prompt remains stable while results update.
     local results = M.merge_results(recent, recent_set, extra)
     return finders.new_table({ results = results, entry_maker = entry_maker })
   end
@@ -209,6 +219,9 @@ function M.find(opts)
               end
 
               local function schedule_refresh()
+                -- Coalesce same-tick backend chunks into one Telescope refresh.
+                -- Some sources stream quickly, and refreshing for every small
+                -- partial result makes insert-mode typing noticeably worse.
                 if refresh_scheduled then
                   return
                 end
@@ -217,6 +230,9 @@ function M.find(opts)
               end
 
               local function source_done(paths, _done_opts)
+                -- Query generations guard every delayed callback. A cancelled
+                -- fd process or extension source may still deliver output after
+                -- the user has typed a new prompt or closed the picker.
                 if my_gen ~= query_gen then
                   return 0
                 end

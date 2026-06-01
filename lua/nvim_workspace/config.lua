@@ -1,6 +1,9 @@
 local M = {}
 
 local defaults = {
+  -- Host configs know which roots are too expensive to scan locally. The plugin
+  -- keeps that decision injectable so it can stay generic while still avoiding
+  -- accidental HOME- or monorepo-scale fd/rg walks.
   large_root_detector = nil,
 }
 

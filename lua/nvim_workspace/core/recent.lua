@@ -2,6 +2,9 @@
 -- (cross-session via shada). Oldfiles are capped during merge, while the
 -- session list has a separate larger bound so active work is not dropped just
 -- because shada has many stale entries.
+--
+-- Internal module: picker modules consume this directly; host configs should
+-- interact with recent files through the public pickers.
 
 local M = {}
 
@@ -16,6 +19,8 @@ local max_session_files = 200
 
 vim.api.nvim_create_autocmd("BufEnter", {
   callback = function(args)
+    -- Only real file buffers belong in the MRU list. Special buffers often have
+    -- synthetic names that cannot be searched or previewed as files.
     if not vim.api.nvim_buf_is_valid(args.buf) or vim.bo[args.buf].buftype ~= "" then
       return
     end
@@ -70,6 +75,9 @@ function M.merge(session, oldfiles, exists_fn, cap)
 end
 
 function M.get()
+  -- vim.v.oldfiles can be large and filesystem probes are relatively expensive.
+  -- Cache until a real file buffer enters, which is the only event that can
+  -- change the session-priority portion of the list.
   if not dirty and cache then
     return cache, cache_set
   end

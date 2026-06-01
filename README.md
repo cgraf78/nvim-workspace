@@ -50,6 +50,22 @@ The plugin also registers:
 :WorkspaceGrep [dir]
 ```
 
+## Public API
+
+Public integrations should use only the top-level module:
+
+- `setup(opts)` configures plugin behavior.
+- `files(opts)` opens the file picker.
+- `grep(opts)` opens the content picker.
+- `register_file_source(source, opts)` adds a file picker backend.
+- `register_grep_source(source, opts)` adds a grep picker backend.
+- `default_root()`, `current_file_dir()`, `current_buffer_dir()`, and
+  `repo_root(start)` expose workspace roots without requiring internal modules.
+
+Modules under `nvim_workspace.core` and `nvim_workspace.picker` are internal
+implementation modules. They are tested directly, but host configs should not
+depend on them.
+
 ## Extension Sources
 
 Additional sources can stream results into the built-in pickers:
@@ -62,7 +78,10 @@ end, { name = "Index search" })
 ```
 
 Grep sources receive the same callback shape, but should return ripgrep
-`--vimgrep` style lines.
+`--vimgrep` style lines. Sources may call `done(results, { partial = true })`
+for streaming chunks and must eventually call `done(results)` once. Returning a
+function or handle with `cancel()`/`kill()` lets the picker stop stale work when
+the prompt changes or closes.
 
 ## Tests
 

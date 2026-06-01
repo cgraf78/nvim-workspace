@@ -52,6 +52,11 @@ COMMANDS                                       *nvim-workspace-commands*
 ==============================================================================
 API                                                 *nvim-workspace-api*
 
+Use `require("nvim_workspace")` for host config integrations. Modules below
+`nvim_workspace.core` and `nvim_workspace.picker` are internal implementation
+modules; they are not part of the public API even though the test suite imports
+them directly.
+
                                                         *nvim_workspace.setup()*
 setup({opts}) ~
   Configure plugin behavior.
@@ -66,12 +71,28 @@ grep({opts}) ~
 
                                                         *nvim_workspace.register_file_source()*
 register_file_source({source}, {opts}) ~
-  Register an additional file source.
+  Register an additional file source. The source receives
+  `(prompt, done, root, ctx)`. Call `done(paths, { partial = true })` to stream
+  partial results, then call `done(paths)` once to finish. Return a function or
+  handle with `cancel()`/`kill()` when work can be cancelled.
 
                                                         *nvim_workspace.register_grep_source()*
 register_grep_source({source}, {opts}) ~
-  Register an additional grep source. Sources should return ripgrep
-  `--vimgrep` style lines.
+  Register an additional grep source. Sources receive the same callback shape
+  as file sources and should return ripgrep `--vimgrep` style lines.
+
+                                                        *nvim_workspace.default_root()*
+default_root() ~
+  Return the broad default search root.
+
+                                                        *nvim_workspace.current_file_dir()*
+current_file_dir() ~
+  Return the current real file buffer's directory, or nil for special buffers.
+
+                                                        *nvim_workspace.current_buffer_dir()*
+current_buffer_dir() ~
+  Return the current file directory, falling back to Neovim's cwd for UI
+  contexts that need a usable default.
 
                                                         *nvim_workspace.repo_root()*
 repo_root({start}) ~

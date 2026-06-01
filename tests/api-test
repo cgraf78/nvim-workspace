@@ -12,11 +12,20 @@ result=$(_nvim_lua '
   print(type(workspace.setup))
   print(type(workspace.files))
   print(type(workspace.grep))
-  print(type(workspace.workspace))
+  print(type(workspace.default_root))
+  print(type(workspace.current_file_dir))
+  print(type(workspace.current_buffer_dir))
   print(type(workspace.repo_root))
 ')
-expected="$(printf 'function\nfunction\nfunction\nfunction\nfunction')"
-_assert_eq "api: exposes setup, picker, and workspace entrypoints" "$expected" "$result"
+expected="$(printf 'function\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction')"
+_assert_eq "api: exposes facade entrypoints without internal module escape hatch" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local workspace = require("nvim_workspace")
+  print(tostring(workspace.workspace == nil))
+')
+expected="true"
+_assert_eq "api: does not expose internal workspace module through facade" "$expected" "$result"
 
 result=$(_nvim_lua '
   local workspace = require("nvim_workspace")
