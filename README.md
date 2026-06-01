@@ -21,6 +21,8 @@ session aliases for project roots, and safe behavior for large workspace roots.
   symlink reveal behavior
 - optional persistence.nvim helpers that keep launch-cwd and file-root sessions
   in sync
+- optional LazyGit helpers that route dot-tracked files through the bare
+  dotfiles repo while leaving normal repos on their own root
 
 ## Requirements
 
@@ -70,6 +72,7 @@ Two optional integration modules are public:
 
 - `require("nvim_workspace.neo_tree")` for Neo-tree root/reveal policy.
 - `require("nvim_workspace.session")` for persistence.nvim session policy.
+- `require("nvim_workspace.lazygit")` for LazyGit cwd/argument policy.
 
 Modules under `nvim_workspace.core` and `nvim_workspace.picker` are internal
 implementation modules. They are tested directly, but host configs should not
@@ -115,6 +118,20 @@ vim.api.nvim_create_autocmd("VimLeavePre", {
 When using persistence.nvim, call `persistence.stop()` after setup if you want
 `nvim-workspace` to own quit-time saves and write file-root aliases together
 with the launch-cwd session.
+
+## LazyGit
+
+```lua
+local lazygit = require("nvim_workspace.lazygit")
+
+vim.keymap.set("n", "<leader>gg", function()
+  lazygit.open_with_snacks()
+end)
+```
+
+Use `lazygit.opts()` when integrating with a different launcher. Dot-tracked
+files receive explicit `--work-tree` and `--git-dir` arguments for the bare
+dotfiles repo; other files use their normal VCS root or local editing context.
 
 ## Extension Sources
 

@@ -9,6 +9,7 @@ CONTENTS                                      *nvim-workspace*
 4. API                              |nvim-workspace-api|
 5. Neo-tree                         |nvim-workspace-neo-tree|
 6. Sessions                         |nvim-workspace-sessions|
+7. LazyGit                          |nvim-workspace-lazygit|
 
 ==============================================================================
 OVERVIEW                                      *nvim-workspace-overview*
@@ -57,9 +58,10 @@ API                                                 *nvim-workspace-api*
 
 Use `require("nvim_workspace")` for picker and root integrations. Optional
 public integration modules are `nvim_workspace.neo_tree` and
-`nvim_workspace.session`. Modules below `nvim_workspace.core` and
-`nvim_workspace.picker` are internal implementation modules; they are not part
-of the public API even though the test suite imports them directly.
+`nvim_workspace.session`, and `nvim_workspace.lazygit`. Modules below
+`nvim_workspace.core` and `nvim_workspace.picker` are internal implementation
+modules; they are not part of the public API even though the test suite imports
+them directly.
 
                                                         *nvim_workspace.setup()*
 setup({opts}) ~
@@ -137,5 +139,26 @@ save() ~
 save_current({persistence_plugin}) ~
   Save through an injected persistence-like object. This is mostly useful for
   tests or advanced host integrations.
+
+==============================================================================
+LAZYGIT                                      *nvim-workspace-lazygit*
+
+Use `require("nvim_workspace.lazygit")` for optional LazyGit integration.
+
+opts() ~
+  Return LazyGit options for the current buffer. Dot-tracked files get explicit
+  bare-repo arguments for the dotfiles checkout; other files get a normal cwd.
+
+opts_for_path({path}) ~
+  Return bare dotfiles LazyGit options for {path}, or nil when {path} is not
+  tracked by the dotfiles repo.
+
+cwd_for_context() ~
+  Return the normal repo root or local editing context used when the current
+  buffer is not a dot-tracked file.
+
+open_with_snacks({snacks}) ~
+  Open LazyGit through Snacks using the computed options. {snacks} is optional
+  and defaults to global `Snacks` or `require("snacks")`.
 
 vim:tw=78:ts=8:ft=help:norl:
