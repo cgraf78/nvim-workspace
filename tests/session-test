@@ -259,6 +259,50 @@ result=$(_nvim_lua "
 _assert_eq "session: launch cwd covers file buffers without root probes" \
   "$covered_project" "$result"
 
+cache_tmp=$(_tmpdir)
+mkdir -p "$cache_tmp/home/project/.git" "$cache_tmp/home/project/src" "$cache_tmp/home/project/lib"
+printf '%s\n' 'print("one")' >"$cache_tmp/home/project/src/one.lua"
+printf '%s\n' 'print("two")' >"$cache_tmp/home/project/lib/two.lua"
+cache_home=$(_realpath "$cache_tmp/home")
+cache_project=$(_realpath "$cache_tmp/home/project")
+
+result=$(_nvim_lua "
+  local root_calls = 0
+  package.loaded['nvim_workspace.core.workspace'] = {
+    normalize = function(path)
+      return vim.fn.fnamemodify(path, ':p'):gsub('/$', '')
+    end,
+    default_root = function()
+      return '$cache_home'
+    end,
+    find_repo_root = function(dir)
+      root_calls = root_calls + 1
+      return '$cache_project'
+    end,
+    contains = function(root, path)
+      return path == root or path:sub(1, #root + 1) == root .. '/'
+    end,
+  }
+
+  local restore = require('nvim_workspace.session')
+  vim.cmd('cd ' .. vim.fn.fnameescape('$cache_home'))
+  vim.cmd('edit ' .. vim.fn.fnameescape('$cache_tmp/home/project/src/one.lua'))
+  vim.cmd('edit ' .. vim.fn.fnameescape('$cache_tmp/home/project/lib/two.lua'))
+
+  local saves = {}
+  restore.save_current({
+    save = function()
+      saves[#saves + 1] = vim.fn.getcwd()
+    end,
+  })
+
+  print(root_calls)
+  print(table.concat(saves, '|'))
+")
+expected="$(printf '1\n%s|%s' "$cache_home" "$cache_project")"
+_assert_eq "session: reuses discovered roots while preserving nested repo probes" \
+  "$expected" "$result"
+
 fail_tmp=$(_tmpdir)
 mkdir -p "$fail_tmp/home" "$fail_tmp/project/src"
 printf '%s\n' 'print("fail")' >"$fail_tmp/project/src/fail.lua"
