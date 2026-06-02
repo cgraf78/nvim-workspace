@@ -25,6 +25,8 @@ session aliases for project roots, and safe behavior for large workspace roots.
   dotfiles repo while leaving normal repos on their own root
 - optional shell-language workspace policy that keeps bashls and fallback
   shell navigation scoped away from broad HOME scans
+- optional definition/navigation fallback that combines LSP, literal file
+  references, shell symbols, and mouse routing behind one command surface
 
 ## Requirements
 
@@ -76,6 +78,7 @@ Two optional integration modules are public:
 - `require("nvim_workspace.session")` for persistence.nvim session policy.
 - `require("nvim_workspace.lazygit")` for LazyGit cwd/argument policy.
 - `require("nvim_workspace.shell")` for shell language-server root policy.
+- `require("nvim_workspace.navigation")` for definition/follow fallback policy.
 
 Modules under `nvim_workspace.core` and `nvim_workspace.picker` are internal
 implementation modules. They are tested directly, but host configs should not
@@ -160,6 +163,33 @@ require("nvim_workspace").setup({
       { prefix = ".local/bin/", direct = true },
     },
     overlay = { enabled = true },
+  },
+})
+```
+
+## Navigation
+
+```lua
+local navigation = require("nvim_workspace.navigation")
+
+vim.keymap.set("n", "gd", navigation.goto)
+vim.keymap.set("n", "<C-LeftMouse>", navigation.goto_mouse)
+```
+
+`navigation.goto()` asks LSP for a definition first, then falls back to literal
+file references and shell-symbol lookup when useful. Shell-like filetypes check
+literal paths before LSP because quoted paths are common and shell LSP coverage
+is uneven.
+
+Use `setup({ navigation = ... })` to adjust the generic policy:
+
+```lua
+require("nvim_workspace").setup({
+  navigation = {
+    path_first_filetypes = { "bash", "sh", "zsh" },
+    shell_filetypes = { "bash", "sh", "zsh" },
+    shell_module = "nvim_workspace.shell",
+    prefer_shell_for_home_paths = true,
   },
 })
 ```

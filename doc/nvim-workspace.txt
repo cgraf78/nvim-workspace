@@ -11,6 +11,7 @@ CONTENTS                                      *nvim-workspace*
 6. Sessions                         |nvim-workspace-sessions|
 7. LazyGit                          |nvim-workspace-lazygit|
 8. Shell Workspaces                 |nvim-workspace-shell|
+9. Navigation                       |nvim-workspace-navigation|
 
 ==============================================================================
 OVERVIEW                                      *nvim-workspace-overview*
@@ -60,7 +61,7 @@ API                                                 *nvim-workspace-api*
 Use `require("nvim_workspace")` for picker and root integrations. Optional
 public integration modules are `nvim_workspace.neo_tree` and
 `nvim_workspace.session`, `nvim_workspace.lazygit`, and
-`nvim_workspace.shell`. Modules below
+`nvim_workspace.shell`, and `nvim_workspace.navigation`. Modules below
 `nvim_workspace.core` and `nvim_workspace.picker` are internal implementation
 modules; they are not part of the public API even though the test suite imports
 them directly.
@@ -205,6 +206,59 @@ Shell setup options:
         { prefix = ".local/bin/", direct = true },
       },
       overlay = { enabled = true },
+    },
+  })
+<
+
+==============================================================================
+NAVIGATION                                    *nvim-workspace-navigation*
+
+Use `require("nvim_workspace.navigation")` for optional definition/follow
+fallback policy.
+
+goto() ~
+  Follow the item at the cursor. The dispatcher asks LSP first for normal
+  source buffers, then falls back to literal file references and configured
+  shell-symbol lookup when the language server has no target.
+
+goto_mouse({pos}) ~
+  Move to a clicked buffer position and then run `goto()`. This is intended for
+  Lua mouse mappings where Neovim has not already moved the cursor.
+
+file_location_at_cursor({bufnr}) ~
+  Return `{ path, line, col }` for a literal file reference under the cursor,
+  including `path:line` and `path:line:col` forms, or nil when no readable path
+  can be resolved.
+
+has_lsp_definition({bufnr}) ~
+  Return true when an attached LSP client advertises definition support for the
+  buffer.
+
+goto_file_at_cursor({bufnr}) ~
+  Open the literal file reference under the cursor when one exists.
+
+shell_locations({symbol}, {bufnr}) ~
+  Return shell function-definition matches for {symbol} using the configured
+  shell workspace policy and `rg --json`.
+
+shell_location({symbol}, {bufnr}) ~
+  Return one preferred shell match, or nil plus a reason. The resolver prefers
+  the current file when duplicate definitions exist, then a single non-test
+  path when test fixtures duplicate production shell helpers.
+
+goto_shell_definition({bufnr}) ~
+  Follow the shell symbol under the cursor when the current filetype is enabled
+  for shell fallback.
+
+Navigation setup options:
+>
+  require("nvim_workspace").setup({
+    navigation = {
+      path_first_filetypes = { "bash", "sh", "zsh" },
+      shell_filetypes = { "bash", "sh", "zsh" },
+      shell_module = "nvim_workspace.shell",
+      prefer_shell_for_home_paths = true,
+      notify_title = "navigation",
     },
   })
 <

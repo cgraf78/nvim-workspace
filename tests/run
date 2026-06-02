@@ -10,3 +10,4 @@ tests/session-test
 tests/neo-tree-test
 tests/lazygit-test
 tests/shell-test
+tests/navigation-test
