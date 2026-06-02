@@ -6,6 +6,7 @@ local defaults = {
   -- accidental HOME- or monorepo-scale fd/rg walks.
   large_root_detector = nil,
   shell = {},
+  navigation = {},
 }
 
 local values = vim.deepcopy(defaults)
