@@ -5,6 +5,7 @@ local defaults = {
   -- keeps that decision injectable so it can stay generic while still avoiding
   -- accidental HOME- or monorepo-scale fd/rg walks.
   large_root_detector = nil,
+  shell = {},
 }
 
 local values = vim.deepcopy(defaults)

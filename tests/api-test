@@ -31,6 +31,7 @@ result=$(_nvim_lua '
   local neo_tree = require("nvim_workspace.neo_tree")
   local session = require("nvim_workspace.session")
   local lazygit = require("nvim_workspace.lazygit")
+  local shell = require("nvim_workspace.shell")
   print(type(neo_tree.filesystem_policy))
   print(type(neo_tree.setup_manager_patch))
   print(type(session.load))
@@ -39,8 +40,11 @@ result=$(_nvim_lua '
   print(type(lazygit.opts_for_path))
   print(type(lazygit.cwd_for_context))
   print(type(lazygit.open_with_snacks))
+  print(type(shell.root_for))
+  print(type(shell.search_paths_for))
+  print(type(shell.before_init))
 ')
-expected="$(printf 'function\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction')"
+expected="$(printf 'function\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction')"
 _assert_eq "api: exposes optional integration modules explicitly" "$expected" "$result"
 
 result=$(_nvim_lua '

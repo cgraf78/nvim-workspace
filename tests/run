@@ -9,3 +9,4 @@ tests/picker-test
 tests/session-test
 tests/neo-tree-test
 tests/lazygit-test
+tests/shell-test
