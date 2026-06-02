@@ -203,7 +203,7 @@ result=$(_nvim_lua "
   vim.bo.filetype = 'zsh'
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { '../lib/target.sh' })
   vim.api.nvim_win_set_cursor(0, { 1, 0 })
-  navigation.goto()
+  navigation['goto']()
   print(vim.api.nvim_buf_get_name(0))
   print(#notifications)
 ")
@@ -237,7 +237,7 @@ result=$(_nvim_lua "
   vim.lsp.buf_request_all = function(_, _, _, handler)
     handler({ [99] = { result = {} } })
   end
-  navigation.goto()
+  navigation['goto']()
   vim.lsp.get_clients = function()
     return {}
   end
@@ -279,7 +279,7 @@ result=$(_nvim_lua "
     vim.api.nvim_win_close(original_win, true)
     handler({ [99] = { result = {} } })
   end
-  navigation.goto()
+  navigation['goto']()
   vim.lsp.get_clients = function()
     return {}
   end

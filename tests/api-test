@@ -44,7 +44,7 @@ result=$(_nvim_lua '
   print(type(shell.root_for))
   print(type(shell.search_paths_for))
   print(type(shell.before_init))
-  print(type(navigation.goto))
+  print(type(navigation["goto"]))
   print(type(navigation.goto_mouse))
   print(type(navigation.has_lsp_definition))
   print(type(navigation.file_location_at_cursor))

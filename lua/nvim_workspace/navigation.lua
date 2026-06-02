@@ -245,7 +245,9 @@ function M.goto_file_at_cursor(bufnr)
 end
 
 local function shell_definition_pattern(symbol)
-  return "^[[:space:]]*(function[[:space:]]+)?" .. regex_escape(symbol) .. "([[:space:]]*\\(\\))?[[:space:]]*\\{"
+  return "^[[:space:]]*(function[[:space:]]+)?"
+    .. regex_escape(symbol)
+    .. "([[:space:]]*\\(\\))?[[:space:]]*\\{"
 end
 
 local function rg_matches(args)
@@ -438,7 +440,11 @@ local function jump_to_lsp_items(items, win, tagname, from)
 
     vim.api.nvim_win_call(win, function()
       vim.cmd("normal! m'")
-      vim.fn.settagstack(vim.fn.win_getid(win), { items = { { tagname = tagname, from = from } } }, "t")
+      vim.fn.settagstack(
+        vim.fn.win_getid(win),
+        { items = { { tagname = tagname, from = from } } },
+        "t"
+      )
       vim.bo[target].buflisted = true
       vim.api.nvim_win_set_buf(win, target)
       vim.api.nvim_win_set_cursor(win, { item.lnum, math.max((item.col or 1) - 1, 0) })
@@ -499,7 +505,9 @@ local function request_lsp_definition(bufnr, on_empty)
   return true
 end
 
-function M.goto()
+-- `goto` is a Lua keyword in newer parsers. Keep the public key stable while
+-- using bracket syntax so the module works across Neovim/Lua builds.
+M["goto"] = function()
   local bufnr = vim.api.nvim_get_current_buf()
   local filetype = vim.bo[bufnr].filetype
   local path_first = config().path_first_filetypes[filetype] == true
@@ -517,7 +525,9 @@ function M.goto()
     if lsp_empty then
       notify("No locations found", vim.log.levels.INFO)
     else
-      notify('method "textDocument/definition" is not supported by any server activated for this buffer')
+      notify(
+        'method "textDocument/definition" is not supported by any server activated for this buffer'
+      )
     end
   end
 
@@ -594,7 +604,7 @@ function M.goto_mouse(pos)
     return false
   end
 
-  M.goto()
+  M["goto"]()
   return true
 end
 
