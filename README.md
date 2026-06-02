@@ -72,7 +72,7 @@ Public integrations should use only the top-level module:
 - `default_root()`, `current_file_dir()`, `current_buffer_dir()`, and
   `repo_root(start)` expose workspace roots without requiring internal modules.
 
-Two optional integration modules are public:
+Optional integration modules are public:
 
 - `require("nvim_workspace.neo_tree")` for Neo-tree root/reveal policy.
 - `require("nvim_workspace.session")` for persistence.nvim session policy.
@@ -172,14 +172,14 @@ require("nvim_workspace").setup({
 ```lua
 local navigation = require("nvim_workspace.navigation")
 
-vim.keymap.set("n", "gd", navigation["goto"])
+vim.keymap.set("n", "gd", navigation.follow)
 vim.keymap.set("n", "<C-LeftMouse>", navigation.goto_mouse)
 ```
 
-`navigation["goto"]()` asks LSP for a definition first, then falls back to
-literal file references and shell-symbol lookup when useful. Shell-like
-filetypes check literal paths before LSP because quoted paths are common and
-shell LSP coverage is uneven.
+`navigation.follow()` is an alias for `navigation["goto"]()` and asks LSP for a
+definition first, then falls back to literal file references and shell-symbol
+lookup when useful. Shell-like filetypes check literal paths before LSP because
+quoted paths are common and shell LSP coverage is uneven.
 
 Use `setup({ navigation = ... })` to adjust the generic policy:
 

@@ -59,9 +59,9 @@ COMMANDS                                       *nvim-workspace-commands*
 API                                                 *nvim-workspace-api*
 
 Use `require("nvim_workspace")` for picker and root integrations. Optional
-public integration modules are `nvim_workspace.neo_tree` and
-`nvim_workspace.session`, `nvim_workspace.lazygit`, and
-`nvim_workspace.shell`, and `nvim_workspace.navigation`. Modules below
+public integration modules are `nvim_workspace.neo_tree`,
+`nvim_workspace.session`, `nvim_workspace.lazygit`, `nvim_workspace.shell`, and
+`nvim_workspace.navigation`. Modules below
 `nvim_workspace.core` and `nvim_workspace.picker` are internal implementation
 modules; they are not part of the public API even though the test suite imports
 them directly.
@@ -216,13 +216,18 @@ NAVIGATION                                    *nvim-workspace-navigation*
 Use `require("nvim_workspace.navigation")` for optional definition/follow
 fallback policy.
 
-goto() ~
+follow() ~
+  Follow the item at the cursor. This is the preferred callable name for host
+  configs.
+
+["goto"]() ~
   Follow the item at the cursor. The dispatcher asks LSP first for normal
   source buffers, then falls back to literal file references and configured
-  shell-symbol lookup when the language server has no target.
+  shell-symbol lookup when the language server has no target. Use bracket syntax
+  because `goto` is a Lua keyword in newer parsers.
 
 goto_mouse({pos}) ~
-  Move to a clicked buffer position and then run `goto()`. This is intended for
+  Move to a clicked buffer position and then run `follow()`. This is intended for
   Lua mouse mappings where Neovim has not already moved the cursor.
 
 file_location_at_cursor({bufnr}) ~

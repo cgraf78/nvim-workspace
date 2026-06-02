@@ -553,6 +553,10 @@ M["goto"] = function()
   fallback(false)
 end
 
+-- Prefer this alias in host configs. It avoids Lua keyword syntax friction while
+-- preserving the original `goto` key for callers that already use bracket form.
+M.follow = M["goto"]
+
 local function move_to_mouse(pos)
   pos = pos or vim.fn.getmousepos()
   local winid = tonumber(pos.winid) or 0
@@ -604,7 +608,7 @@ function M.goto_mouse(pos)
     return false
   end
 
-  M["goto"]()
+  M.follow()
   return true
 end
 

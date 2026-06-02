@@ -45,11 +45,12 @@ result=$(_nvim_lua '
   print(type(shell.search_paths_for))
   print(type(shell.before_init))
   print(type(navigation["goto"]))
+  print(type(navigation.follow))
   print(type(navigation.goto_mouse))
   print(type(navigation.has_lsp_definition))
   print(type(navigation.file_location_at_cursor))
 ')
-expected="$(printf 'function\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction')"
+expected="$(printf 'function\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction')"
 _assert_eq "api: exposes optional integration modules explicitly" "$expected" "$result"
 
 result=$(_nvim_lua '

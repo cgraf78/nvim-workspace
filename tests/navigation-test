@@ -211,6 +211,143 @@ expected="$(printf '%s\n0' "$project/lib/target.sh")"
 _assert_eq "navigation: goto honors configurable path-first filetypes" "$expected" "$result"
 
 result=$(_nvim_lua "
+  local navigation = require('nvim_workspace.navigation')
+  vim.api.nvim_command('edit $project/src/current.sh')
+  local get_clients = vim.lsp.get_clients
+  vim.lsp.get_clients = function()
+    return {
+      {
+        server_capabilities = { definitionProvider = true },
+      },
+    }
+  end
+  print(tostring(navigation.has_lsp_definition()))
+  vim.lsp.get_clients = function()
+    return {
+      {
+        server_capabilities = { definitionProvider = false },
+      },
+    }
+  end
+  print(tostring(navigation.has_lsp_definition()))
+  vim.lsp.get_clients = get_clients
+")
+expected="$(printf 'true\nfalse')"
+_assert_eq "navigation: has_lsp_definition reflects client capabilities" \
+  "$expected" "$result"
+
+result=$(_nvim_lua "
+  require('nvim_workspace').setup({
+    navigation = { path_first_filetypes = {} },
+  })
+  local navigation = require('nvim_workspace.navigation')
+  vim.api.nvim_command('edit $project/src/current.sh')
+  vim.bo.filetype = 'lua'
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'target_fn' })
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.lsp.get_clients = function()
+    return {
+      {
+        id = 99,
+        offset_encoding = 'utf-16',
+        stop = function() end,
+        supports_method = function()
+          return true
+        end,
+      },
+    }
+  end
+  vim.lsp.get_client_by_id = function()
+    return { offset_encoding = 'utf-16' }
+  end
+  vim.lsp.buf_request_all = function(_, _, _, handler)
+    handler({
+      [99] = {
+        result = {
+          uri = vim.uri_from_fname('$project/lib/target.sh'),
+          range = {
+            start = { line = 3, character = 1 },
+            ['end'] = { line = 3, character = 2 },
+          },
+        },
+      },
+    })
+  end
+  navigation.follow()
+  vim.lsp.get_clients = function()
+    return {}
+  end
+  print(vim.api.nvim_buf_get_name(0))
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  print(cursor[1])
+  print(cursor[2])
+")
+expected="$(printf '%s\n4\n1' "$project/lib/target.sh")"
+_assert_eq "navigation: single LSP definition jumps to the target location" \
+  "$expected" "$result"
+
+result=$(_nvim_lua "
+  require('nvim_workspace').setup({
+    navigation = { path_first_filetypes = {} },
+  })
+  local navigation = require('nvim_workspace.navigation')
+  vim.api.nvim_command('edit $project/src/current.sh')
+  vim.bo.filetype = 'lua'
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'target_fn' })
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.lsp.get_clients = function()
+    return {
+      {
+        id = 99,
+        offset_encoding = 'utf-16',
+        stop = function() end,
+        supports_method = function()
+          return true
+        end,
+      },
+    }
+  end
+  vim.lsp.get_client_by_id = function()
+    return { offset_encoding = 'utf-16' }
+  end
+  vim.lsp.buf_request_all = function(_, _, _, handler)
+    handler({
+      [99] = {
+        result = {
+          {
+            uri = vim.uri_from_fname('$project/lib/target.sh'),
+            range = {
+              start = { line = 1, character = 0 },
+              ['end'] = { line = 1, character = 1 },
+            },
+          },
+          {
+            uri = vim.uri_from_fname('$project/src/other.sh'),
+            range = {
+              start = { line = 0, character = 0 },
+              ['end'] = { line = 0, character = 1 },
+            },
+          },
+        },
+      },
+    })
+  end
+  navigation.follow()
+  vim.lsp.get_clients = function()
+    return {}
+  end
+  print(vim.fn.getqflist({ size = 0, title = 0 }).size)
+  print(vim.fn.getqflist({ size = 0, title = 0 }).title)
+  local quickfix_windows = vim.tbl_filter(function(win)
+    return win.quickfix == 1
+  end, vim.fn.getwininfo())
+  print(#quickfix_windows)
+")
+expected="$(printf '2\nLSP locations\n1')"
+_assert_eq "navigation: multiple LSP definitions open quickfix results" \
+  "$expected" "$result"
+
+result=$(_nvim_lua "
   require('nvim_workspace').setup({
     navigation = { path_first_filetypes = {} },
   })
