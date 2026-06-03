@@ -55,6 +55,9 @@ require("nvim_workspace").setup({
       return nil
     end,
   },
+  session = {
+    save_debounce_ms = 500,
+  },
 })
 
 vim.keymap.set("n", "<C-p>", function()
@@ -82,8 +85,12 @@ Public integrations should use only the top-level module:
 - `grep(opts)` opens the content picker.
 - `register_file_source(source, opts)` adds a file picker backend.
 - `register_grep_source(source, opts)` adds a grep picker backend.
-- `default_root()`, `current_file_dir()`, `current_buffer_dir()`, and
-  `repo_root(start)` expose workspace roots without requiring internal modules.
+- `default_root()`, `current_file_dir()`, and `current_buffer_dir()` expose
+  workspace context without requiring internal modules.
+- `current_file_repo_root()` returns the current file buffer's detected repo
+  root, or nil for special buffers and files without a detected root.
+- `repo_root(start)` returns a usable workspace root, falling back to the
+  normalized start directory when no repo is detected.
 
 Optional integration modules are public:
 
@@ -127,13 +134,8 @@ explorer.
 ```lua
 local session = require("nvim_workspace.session")
 
-vim.api.nvim_create_autocmd("VimEnter", {
-  nested = true,
-  callback = session.load,
-})
-
-vim.api.nvim_create_autocmd("VimLeavePre", {
-  callback = session.save,
+session.setup({
+  save_debounce_ms = 500,
 })
 ```
 

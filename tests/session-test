@@ -262,7 +262,6 @@ fail_tmp=$(_tmpdir)
 mkdir -p "$fail_tmp/home" "$fail_tmp/project/src" "$fail_tmp/project/.git"
 printf '%s\n' 'print("fail")' >"$fail_tmp/project/src/fail.lua"
 fail_home=$(_realpath "$fail_tmp/home")
-fail_project=$(_realpath "$fail_tmp/project")
 result=$(_nvim_lua "
   local restore = require('nvim_workspace.session')
   vim.cmd('cd ' .. vim.fn.fnameescape('$fail_home'))
@@ -286,3 +285,87 @@ result=$(_nvim_lua "
 ")
 expected="$(printf 'false\nalias save failed\n%s' "$fail_home")"
 _assert_eq "session: failed alias save restores cwd" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local restore = require("nvim_workspace.session")
+  local calls = {}
+  package.loaded.persistence = {
+    load = function()
+      calls[#calls + 1] = "load"
+    end,
+    save = function()
+      calls[#calls + 1] = "save"
+    end,
+  }
+
+  restore.setup({ save_debounce_ms = 10 })
+  vim.api.nvim_exec_autocmds("VimEnter", { modeline = false })
+  vim.api.nvim_exec_autocmds("BufAdd", { modeline = false })
+  vim.wait(1000, function()
+    return #calls >= 2
+  end)
+  vim.api.nvim_exec_autocmds("VimLeavePre", { modeline = false })
+
+  print(table.concat(calls, "|"))
+')
+_assert_eq "session: setup owns load, debounced save, and leave save autocmds" \
+  "load|save|save" "$result"
+
+result=$(_nvim_lua '
+  local restore = require("nvim_workspace.session")
+  local loads = 0
+  package.loaded.persistence = {
+    load = function()
+      loads = loads + 1
+    end,
+    save = function() end,
+  }
+
+  restore.setup({ save_debounce_ms = 10 })
+  vim.api.nvim_exec_autocmds("StdinReadPre", { modeline = false })
+  vim.api.nvim_exec_autocmds("VimEnter", { modeline = false })
+
+  print(loads)
+')
+_assert_eq "session: setup skips restore after stdin input" "0" "$result"
+
+result=$(_nvim_lua '
+  local restore = require("nvim_workspace.session")
+  local saves = 0
+  package.loaded.persistence = {
+    load = function() end,
+    save = function()
+      saves = saves + 1
+    end,
+  }
+
+  restore.setup({ save_debounce_ms = 10 })
+  restore.setup({ save_debounce_ms = 10 })
+  vim.api.nvim_exec_autocmds("BufAdd", { modeline = false })
+  vim.wait(1000, function()
+    return saves >= 1
+  end)
+
+  print(saves)
+')
+_assert_eq "session: setup replaces old autocmds and timers" "1" "$result"
+
+result=$(_nvim_lua '
+  local restore = require("nvim_workspace.session")
+  local saves = 0
+  package.loaded.persistence = {
+    load = function() end,
+    save = function()
+      saves = saves + 1
+    end,
+  }
+
+  restore.setup({ save_debounce_ms = "fast" })
+  vim.api.nvim_exec_autocmds("BufAdd", { modeline = false })
+  vim.wait(1000, function()
+    return saves >= 1
+  end)
+
+  print(saves)
+')
+_assert_eq "session: setup tolerates invalid debounce values" "1" "$result"

@@ -59,6 +59,11 @@ lazygit.opts_for_path ~
   workspace root; `ctx.relative_to_default_root(path)` returns a root-relative
   spelling for host policies that need one.
 
+session ~
+  Optional table. When set, `setup()` calls `nvim_workspace.session.setup()` to
+  register the standard persistence.nvim lifecycle autocmds. Use
+  `session.save_debounce_ms` to control buffer-change save debounce.
+
 ==============================================================================
 COMMANDS                                       *nvim-workspace-commands*
 
@@ -120,6 +125,12 @@ current_buffer_dir() ~
   Return the current file directory, falling back to Neovim's cwd for UI
   contexts that need a usable default.
 
+                                                        *nvim_workspace.current_file_repo_root()*
+current_file_repo_root() ~
+  Return the detected repo root for the current real file buffer. Return nil for
+  special buffers and for files that are not inside a detected repo/workspace.
+  Unlike `repo_root()`, this function does not fall back to the file directory.
+
                                                         *nvim_workspace.repo_root()*
 repo_root({start}) ~
   Return the detected workspace root for {start}, or a normalized fallback.
@@ -180,6 +191,12 @@ SESSIONS                                      *nvim-workspace-sessions*
 
 Use `require("nvim_workspace.session")` for optional persistence.nvim
 integration.
+
+setup({opts}) ~
+  Register the standard session lifecycle autocmds: skip restore for stdin
+  input, load on `VimEnter`, debounce saves on buffer add/delete, and save on
+  `VimLeavePre`. `{opts}.save_debounce_ms` controls the buffer-change save
+  debounce and defaults to 500.
 
 load() ~
   Load the current persistence session when Neovim started without file

@@ -1,9 +1,13 @@
 local M = {}
 
 local vcs_markers = { ".git", ".hg", ".jj", ".svn" }
+local group_name = "nvim_workspace_session"
+local started_with_stdin = false
+local save_timer = nil
+local setup_generation = 0
 
 local function enabled()
-  return not vim.g.started_with_stdin and not vim.g.disable_session_restore
+  return not started_with_stdin and not vim.g.disable_session_restore
 end
 
 local function plugin()
@@ -191,6 +195,71 @@ end
 function M.save_current(persistence_plugin)
   persistence_plugin.save()
   M.save_alias_sessions(persistence_plugin)
+end
+
+function M.setup(opts)
+  local config = opts or {}
+  local save_debounce_ms = config.save_debounce_ms or 500
+  if type(save_debounce_ms) ~= "number" or save_debounce_ms < 0 then
+    save_debounce_ms = 500
+  end
+  started_with_stdin = false
+  setup_generation = setup_generation + 1
+  local generation = setup_generation
+
+  local group = vim.api.nvim_create_augroup(group_name, { clear = true })
+
+  if save_timer and not save_timer:is_closing() then
+    save_timer:stop()
+    save_timer:close()
+  end
+  save_timer = assert(vim.uv.new_timer())
+
+  vim.api.nvim_create_autocmd("StdinReadPre", {
+    group = group,
+    callback = function()
+      started_with_stdin = true
+    end,
+  })
+
+  vim.api.nvim_create_autocmd("VimEnter", {
+    group = group,
+    nested = true,
+    callback = function()
+      M.load()
+    end,
+  })
+
+  vim.api.nvim_create_autocmd({ "BufAdd", "BufDelete" }, {
+    group = group,
+    callback = function()
+      if not save_timer or save_timer:is_closing() then
+        return
+      end
+      save_timer:stop()
+      save_timer:start(
+        save_debounce_ms,
+        0,
+        vim.schedule_wrap(function()
+          if generation ~= setup_generation then
+            return
+          end
+          M.save()
+        end)
+      )
+    end,
+  })
+
+  vim.api.nvim_create_autocmd("VimLeavePre", {
+    group = group,
+    callback = function()
+      if save_timer and not save_timer:is_closing() then
+        save_timer:stop()
+        save_timer:close()
+      end
+      M.save()
+    end,
+  })
 end
 
 return M
