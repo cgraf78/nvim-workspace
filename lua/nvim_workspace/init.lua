@@ -4,6 +4,9 @@ local M = {}
 -- can evolve without leaking plugin structure into user-facing integrations.
 function M.setup(opts)
   require("nvim_workspace.config").setup(opts)
+  if opts and opts.session then
+    require("nvim_workspace.session").setup(opts.session)
+  end
 end
 
 -- Open the workspace file picker. opts.root narrows the search root; without it
@@ -43,6 +46,25 @@ end
 
 function M.repo_root(start)
   return require("nvim_workspace.core.workspace").repo_root(start)
+end
+
+function M.current_file_repo_root()
+  local workspace = require("nvim_workspace.core.workspace")
+  local dir = workspace.current_file_dir()
+  if not dir then
+    return nil
+  end
+
+  local root = workspace.find_repo_root(dir)
+  if not root then
+    return nil
+  end
+
+  local stat = vim.uv.fs_stat(root)
+  if not stat or stat.type ~= "directory" then
+    return nil
+  end
+  return root
 end
 
 return M

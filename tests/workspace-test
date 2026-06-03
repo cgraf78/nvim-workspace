@@ -189,6 +189,20 @@ expected="$(printf 'nil\n%s' "$tmp/outside")"
 _assert_eq "repo_root: distinguishes unsupported repo from fallback" "$expected" "$result"
 
 result=$(_nvim_lua "
+  local workspace = require('nvim_workspace')
+  vim.api.nvim_command('edit $tmp/project/src/file.lua')
+  print(workspace.current_file_repo_root())
+  vim.api.nvim_command('edit $tmp/outside/target.lua')
+  print(tostring(workspace.current_file_repo_root()))
+  vim.api.nvim_command('new')
+  vim.bo.buftype = 'nofile'
+  print(tostring(workspace.current_file_repo_root()))
+")
+expected="$(printf '%s\nnil\nnil' "$tmp/project")"
+_assert_eq "repo_root: current_file_repo_root returns only detected file roots" \
+  "$expected" "$result"
+
+result=$(_nvim_lua "
   local workspace = require('nvim_workspace.core.workspace')
   local path = '$tmp/project/src/file.lua'
   print(workspace.find_vcs_root(path))

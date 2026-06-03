@@ -15,9 +15,10 @@ result=$(_nvim_lua '
   print(type(workspace.default_root))
   print(type(workspace.current_file_dir))
   print(type(workspace.current_buffer_dir))
+  print(type(workspace.current_file_repo_root))
   print(type(workspace.repo_root))
 ')
-expected="$(printf 'function\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction')"
+expected="$(printf 'function\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction')"
 _assert_eq "api: exposes facade entrypoints without internal module escape hatch" "$expected" "$result"
 
 result=$(_nvim_lua '
@@ -35,6 +36,7 @@ result=$(_nvim_lua '
   local navigation = require("nvim_workspace.navigation")
   print(type(neo_tree.filesystem_policy))
   print(type(neo_tree.setup_manager_patch))
+  print(type(session.setup))
   print(type(session.load))
   print(type(session.save))
   print(type(lazygit.opts))
@@ -50,7 +52,7 @@ result=$(_nvim_lua '
   print(type(navigation.has_lsp_definition))
   print(type(navigation.file_location_at_cursor))
 ')
-expected="$(printf 'function\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction')"
+expected="$(printf 'function\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction')"
 _assert_eq "api: exposes optional integration modules explicitly" "$expected" "$result"
 
 result=$(_nvim_lua '
@@ -85,6 +87,22 @@ result=$(_nvim_lua '
 ')
 expected="$(printf '/tmp/large\ntrue\ntrue')"
 _assert_eq "api: setup large_root_detector overrides global detector" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local session_opts
+  package.loaded["nvim_workspace.session"] = {
+    setup = function(opts)
+      session_opts = opts
+    end,
+  }
+  require("nvim_workspace").setup({
+    session = {
+      save_debounce_ms = 123,
+    },
+  })
+  print(session_opts.save_debounce_ms)
+')
+_assert_eq "api: setup delegates configured session lifecycle" "123" "$result"
 
 result=$(_nvim_lua '
   vim.cmd("runtime plugin/nvim-workspace.lua")
