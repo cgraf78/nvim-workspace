@@ -16,7 +16,6 @@ mkdir -p "$project/scripts" "$project/.git" "$overlay/home/.config/shell/lib" "$
 touch "$home/.bashrc" "$home/.config/shell/lib/common.bash"
 touch "$home/.local/bin/agent-hook-test" "$home/.local/bin/plain-tool"
 touch "$project/scripts/run.sh" "$overlay/home/.config/shell/lib/overlay.bash"
-project_real=$(_realpath "$project")
 overlay_real=$(_realpath "$overlay")
 
 result=$(_nvim_lua "
@@ -31,7 +30,7 @@ result=$(_nvim_lua "
   print(table.concat(globs or {}, ','))
 ")
 expected="$(printf '%s\n**/*@(.sh|.inc|.bash|.zsh|.command)\n%s\n%s\n*.sh,*.inc,*.bash,*.zsh,*.command' \
-  "$project_real" "$project_real" "$project_real")"
+  "$project" "$project" "$project")"
 _assert_eq "shell: normal repos use VCS root and recursive globs" "$expected" "$result"
 
 result=$(_nvim_lua "
