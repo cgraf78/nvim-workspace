@@ -109,7 +109,7 @@ result=$(_nvim_lua "
   print(workspace.current_buffer_dir())
   print(workspace.repo_root())
 ")
-expected="$(printf '%s\n%s' "$project_src_real" "$tmp/project")"
+expected="$(printf '%s\n%s' "$project_src_real" "$project_real")"
 _assert_eq "current_buffer_dir: new files keep parent dir but repo roots use vcs markers" \
   "$expected" "$result"
 
@@ -195,7 +195,7 @@ result=$(_nvim_lua "
   print(workspace.find_repo_root(path))
   print(workspace.repo_root(path))
 ")
-expected="$(printf '%s\n%s\n%s' "$tmp/project" "$tmp/project" "$tmp/project")"
+expected="$(printf '%s\n%s\n%s' "$project_real" "$project_real" "$project_real")"
 _assert_eq "repo_root: generic marker fallback detects vcs roots" "$expected" "$result"
 
 result=$(_nvim_lua "
@@ -242,7 +242,7 @@ result=$(_nvim_lua "
   print(tostring(workspace.find_repo_root(path)))
   print(workspace.repo_root(path))
 ")
-expected="$(printf '%s\n%s\n%s' "$tmp/project" "$tmp/project" "$tmp/project")"
+expected="$(printf '%s\n%s\n%s' "$project_real" "$project_real" "$project_real")"
 _assert_eq "repo_root: detector failures fall back to marker roots" "$expected" "$result"
 
 home_workspace=$(_tmpdir)
