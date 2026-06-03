@@ -132,16 +132,48 @@ Use `require("nvim_workspace.neo_tree")` for optional Neo-tree integration.
 filesystem_policy({root}) ~
   Return per-root Neo-tree git-status and filtering policy.
 
+apply_filesystem_policy({policy}) ~
+  Apply a Neo-tree filesystem policy to the global Neo-tree config boundary
+  used during navigation.
+
+root_dir() ~
+  Return the current Neo-tree filesystem root when focused in Neo-tree, or the
+  broad default workspace root otherwise.
+
+context_root() ~
+  Return the canonical workspace root for the current buffer context.
+
+reveal_file({root}, {path}) ~
+  Return {path} rewritten into {root}'s visible spelling when possible. This is
+  useful for symlinked HOME aliases and Neo-tree reveal calls.
+
+open({root}, {opts}) ~
+  Open Neo-tree with nvim-workspace root, reveal, and filesystem policy.
+
+prompt_for_root({default_root}) ~
+  Prompt for an explorer root and open Neo-tree focused on the chosen root.
+
 filesystem_mappings() ~
   Return mappings that mirror picker root controls: CTRL-R for HOME, CTRL-W
   for workspace root, and CTRL-D to prompt for a directory.
 
+remember_current_file() ~
+  Remember and return the current real file buffer so Neo-tree follow behavior
+  can ignore synthetic or special buffers.
+
+reveal_open_tree() ~
+  Reveal the remembered/current file in an already-open Neo-tree filesystem
+  window when the file is inside that tree's visible root.
+
+schedule_reveal_open_tree() ~
+  Debounce `reveal_open_tree()` for follow-current-file autocmds.
+
+setup_follow_autocmd() ~
+  Register the follow-current-file autocmd used by the Neo-tree manager patch.
+
 setup_manager_patch() ~
   Patch Neo-tree manager boundaries so reveal paths preserve visible HOME
   symlinks and per-root policy applies to navigation entry points.
-
-open({root}, {opts}) ~
-  Open Neo-tree with nvim-workspace root and reveal policy.
 
 ==============================================================================
 SESSIONS                                      *nvim-workspace-sessions*
@@ -153,12 +185,27 @@ load() ~
   Load the current persistence session when Neovim started without file
   arguments, then repair stale buffers and filetype state.
 
+load_current({persistence_plugin}) ~
+  Load through an injected persistence-like object, clear the arglist, and
+  schedule stale-buffer and filetype repairs.
+
 save() ~
   Save the current persistence session and file-root aliases.
 
 save_current({persistence_plugin}) ~
   Save through an injected persistence-like object. This is mostly useful for
   tests or advanced host integrations.
+
+save_alias_sessions({persistence_plugin}) ~
+  Save additional session aliases for file-derived workspace roots while
+  restoring the caller's cwd afterward.
+
+delete_missing_buffers() ~
+  Delete session-restored buffers whose files no longer exist.
+
+refresh_current_filetype() ~
+  Re-detect the current buffer's filetype without re-reading the file, preserving
+  cursor and view state restored by the session.
 
 ==============================================================================
 LAZYGIT                                      *nvim-workspace-lazygit*
