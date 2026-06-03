@@ -198,7 +198,7 @@ result=$(_nvim_lua "
   vim.bo.buftype = 'nofile'
   print(tostring(workspace.current_file_repo_root()))
 ")
-expected="$(printf '%s\nnil\nnil' "$tmp/project")"
+expected="$(printf '%s\nnil\nnil' "$project_real")"
 _assert_eq "repo_root: current_file_repo_root returns only detected file roots" \
   "$expected" "$result"
 
