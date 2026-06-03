@@ -21,8 +21,8 @@ session aliases for project roots, and safe behavior for large workspace roots.
   symlink reveal behavior
 - optional persistence.nvim helpers that keep launch-cwd and file-root sessions
   in sync
-- optional LazyGit helpers that route dot-tracked files through the bare
-  dotfiles repo while leaving normal repos on their own root
+- optional LazyGit helpers that let host configs supply special-repo launch
+  options while leaving normal repos on their own root
 - optional shell-language workspace policy that keeps bashls and fallback
   shell navigation scoped away from broad HOME scans
 - optional definition/navigation fallback that combines LSP, literal file
@@ -42,6 +42,19 @@ require("nvim_workspace").setup({
   large_root_detector = function(root, opts)
     return false
   end,
+  workspace = {
+    repo_root_detector = function(start, opts)
+      return nil
+    end,
+    home_workspace_detector = function(start, opts)
+      return nil
+    end,
+  },
+  lazygit = {
+    opts_for_path = function(path, ctx)
+      return nil
+    end,
+  },
 })
 
 vim.keymap.set("n", "<C-p>", function()
@@ -136,8 +149,12 @@ end)
 ```
 
 Use `lazygit.opts()` when integrating with a different launcher. Dot-tracked
-files receive explicit `--work-tree` and `--git-dir` arguments for the bare
-dotfiles repo; other files use their normal VCS root or local editing context.
+or bare-repo behavior is not built in; provide `setup({ lazygit = {
+opts_for_path = ... } })` when a host config needs special launcher arguments.
+The callback receives `(path, ctx)`, where `ctx.default_root` is the broad
+workspace root and `ctx.relative_to_default_root(path)` returns the path spelling
+relative to that root. Other files use their normal VCS root or local editing
+context.
 
 ## Shell Workspaces
 
@@ -162,7 +179,7 @@ require("nvim_workspace").setup({
       { prefix = ".config/shell/", glob = ".config/shell/**/*@(.sh|.bash)" },
       { prefix = ".local/bin/", direct = true },
     },
-    overlay = { enabled = true },
+    overlay = { enabled = true, root_prefix = ".workspace-" },
   },
 })
 ```

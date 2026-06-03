@@ -8,6 +8,7 @@
 -- Only functions re-exported from that facade are part of the public API.
 
 local M = {}
+local vcs_markers = { ".git", ".hg", ".jj", ".svn" }
 
 local function strip_trailing_slash(path)
   if path == "/" then
@@ -18,10 +19,6 @@ end
 
 local home = strip_trailing_slash(vim.fn.fnamemodify(vim.env.HOME or "~", ":p"))
 local home_aliases
-
-local function dotfiles_git_dir()
-  return home .. "/.dotfiles"
-end
 
 -- Expand user/env syntax and produce an absolute path without resolving
 -- symlinks. Use canonical() when realpath comparison is needed instead.
@@ -126,7 +123,8 @@ end
 function M.canonical(path)
   local normalized = M.normalize(path)
   -- Compare real paths when possible so symlinked roots match repo roots
-  -- returned by sley, while preserving normalized paths for missing dirs.
+  -- returned by host detectors, while preserving normalized paths for missing
+  -- dirs.
   return strip_trailing_slash(vim.uv.fs_realpath(normalized) or normalized)
 end
 
@@ -295,101 +293,61 @@ function M.is_large_repo(root, opts)
   return ok and result == true
 end
 
--- Run a root-detection command that emits sley-compatible JSON. Fail closed so
--- editor features can fall back to smaller local roots instead of guessing.
-local function status_root(cmd, cwd, opts)
-  if vim.fn.executable(cmd[1]) ~= 1 then
-    return nil
-  end
-
-  local system_opts = { cwd = cwd, text = true }
-  if opts and opts.env then
-    system_opts.env = opts.env
-  end
-
-  local ok_system, result = pcall(function()
-    return vim.system(cmd, system_opts):wait()
-  end)
-  if not ok_system then
-    return nil
-  end
-  if result.code ~= 0 or result.stdout == "" then
-    return nil
-  end
-
-  local ok, decoded = pcall(vim.json.decode, result.stdout)
-  if not ok or type(decoded) ~= "table" or type(decoded.root) ~= "string" then
-    return nil
-  end
-  return home_visible_path(decoded.root)
+local function configured_workspace()
+  return require("nvim_workspace.config").get().workspace or {}
 end
 
--- Detect the base bare dotfiles repo. This is intentionally separate from
--- find_vcs_root() so callers can opt out of treating all of HOME as a repo.
-local function dotfiles_repo_root(cwd)
-  if not M.contains(home, cwd) then
+local function call_detector(detector, start, opts)
+  if type(detector) ~= "function" then
     return nil
   end
 
-  local dotfiles_dir = dotfiles_git_dir()
-  local stat = vim.uv.fs_stat(dotfiles_dir)
-  if not stat or stat.type ~= "directory" then
+  -- Host detectors are optional acceleration/customization hooks. A bad return
+  -- value or transient error should not make editor navigation fail; callers can
+  -- still fall back to marker roots or the local directory.
+  local ok, root = pcall(detector, start, opts or {})
+  if not ok or type(root) ~= "string" or root == "" then
     return nil
   end
+  return home_visible_path(root)
+end
 
-  -- Dotfiles opts into Sley's generic bare-repo fallback here instead of making
-  -- the Sley launcher know about the local ~/.dotfiles convention.
-  return status_root({ "sley", "status", "--json" }, cwd, {
-    env = {
-      -- The PATH-visible git launcher treats HOME as the bare dotfiles repo,
-      -- which makes generic status probes walk HOME-scale untracked files before
-      -- Sley's bare-repo fast path can disable them. Root detection needs real
-      -- Git semantics here; the explicit SLEY_BARE_REPO_* env below still tells
-      -- Sley when to opt into the dotfiles worktree.
-      DOT_GIT_REAL = "1",
-      SLEY_BARE_REPO_GIT_DIR = dotfiles_dir,
-      SLEY_BARE_REPO_WORK_TREE = home,
-    },
-  })
+local function marker_repo_root(start)
+  local markers = vim.fs.find(vcs_markers, { path = start, upward = true, limit = 1 })
+  local marker = markers[1]
+  if not marker then
+    return nil
+  end
+  return M.normalize(vim.fs.dirname(marker))
 end
 
 function M.find_home_repo_root()
-  local root = dotfiles_repo_root(home)
+  local root = call_detector(configured_workspace().home_workspace_detector, home, {
+    kind = "home",
+  })
   if root == home then
     return root
-  end
-
-  local dotfiles_dir = dotfiles_git_dir()
-  local stat = vim.uv.fs_stat(dotfiles_dir)
-  if stat and stat.type == "directory" then
-    return home
   end
   return nil
 end
 
--- Detect a normal VCS workspace through the PATH-visible sley entry point. This
--- excludes Sley's optional bare-repo fallback and is the right API for language
--- servers with expensive scans.
+-- Detect a normal VCS workspace. Hosts can inject a faster or richer detector;
+-- the built-in fallback intentionally knows only common VCS marker directories.
 function M.find_vcs_root(start)
   local cwd = M.normalize(start or M.current_buffer_dir())
-  -- sley owns VCS repo detection; nvim only consumes the stable JSON contract.
-  -- Ask sley to skip any inherited bare-repo fallback so this remains a normal
-  -- repo probe while still using the same PATH-visible front door as terminals.
-  return status_root({ "sley", "status", "--json" }, cwd, {
-    env = {
-      -- See dotfiles_repo_root(): workspace probes need real Git semantics,
-      -- not the dotfiles-aware git launcher that rewrites HOME to ~/.dotfiles.
-      DOT_GIT_REAL = "1",
-      SLEY_SKIP_BARE_REPO_FALLBACK = "1",
-    },
-  })
+  return call_detector(configured_workspace().repo_root_detector, cwd, {
+    kind = "vcs",
+  }) or marker_repo_root(cwd)
 end
 
--- Detect the full user workspace root, including the bare dotfiles repo when
--- no normal VCS root owns the path.
+-- Detect the full user workspace root, including any host-configured
+-- HOME-shaped workspace when no normal VCS root owns the path.
 function M.find_repo_root(start)
   local cwd = M.normalize(start or M.current_buffer_dir())
-  return M.find_vcs_root(cwd) or dotfiles_repo_root(cwd)
+  return M.find_vcs_root(cwd)
+    or call_detector(configured_workspace().home_workspace_detector, cwd, {
+      kind = "home",
+    })
 end
 
 -- Return a usable workspace root. If repo detection fails, use the normalized

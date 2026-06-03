@@ -42,6 +42,23 @@ large_root_detector ~
   should be suppressed for that root. When unset, nvim-workspace falls back to
   a global `in_large_repo` function for compatibility with existing configs.
 
+workspace.repo_root_detector ~
+  Optional function called as `fn(start, opts)`. Return a root string when the
+  host config has a preferred repo detector. When unset or nil, nvim-workspace
+  falls back to common VCS markers such as `.git`, `.hg`, `.jj`, and `.svn`.
+
+workspace.home_workspace_detector ~
+  Optional function called as `fn(start, opts)`. Return a root string when the
+  path belongs to a host-owned HOME-shaped workspace, such as a bare repo with a
+  separate work tree. Generic nvim-workspace behavior does not assume any
+  dotfiles layout.
+
+lazygit.opts_for_path ~
+  Optional function called as `fn(path, ctx)`. Return LazyGit opts for special
+  repositories, or nil for normal repo behavior. `ctx.default_root` is the broad
+  workspace root; `ctx.relative_to_default_root(path)` returns a root-relative
+  spelling for host policies that need one.
+
 ==============================================================================
 COMMANDS                                       *nvim-workspace-commands*
 
@@ -149,16 +166,16 @@ LAZYGIT                                      *nvim-workspace-lazygit*
 Use `require("nvim_workspace.lazygit")` for optional LazyGit integration.
 
 opts() ~
-  Return LazyGit options for the current buffer. Dot-tracked files get explicit
-  bare-repo arguments for the dotfiles checkout; other files get a normal cwd.
+  Return LazyGit options for the current buffer. Host-configured special repo
+  callbacks can provide explicit args; other files get a normal cwd.
 
 opts_for_path({path}) ~
-  Return bare dotfiles LazyGit options for {path}, or nil when {path} is not
-  tracked by the dotfiles repo.
+  Return host-configured LazyGit options for {path}, or nil when the path should
+  use normal repo behavior.
 
 cwd_for_context() ~
   Return the normal repo root or local editing context used when the current
-  buffer is not a dot-tracked file.
+  buffer does not have host-configured special repo options.
 
 open_with_snacks({snacks}) ~
   Open LazyGit through Snacks using the computed options. {snacks} is optional
@@ -205,7 +222,7 @@ Shell setup options:
         { prefix = ".config/shell/", glob = ".config/shell/**/*@(.sh|.bash)" },
         { prefix = ".local/bin/", direct = true },
       },
-      overlay = { enabled = true },
+      overlay = { enabled = true, root_prefix = ".workspace-" },
     },
   })
 <

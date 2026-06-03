@@ -10,48 +10,36 @@ echo "=== lazygit: workspace-aware options ==="
 tmp=$(_tmpdir)
 home="$tmp/home"
 project="$tmp/project"
-mkdir -p "$home/.dotfiles" "$home/.config/nvim" "$project/src"
+mkdir -p "$home/.config/nvim" "$project/src" "$project/.git"
 touch "$home/.bashrc" "$home/.config/nvim/init.lua" "$home/untracked"
 touch "$project/src/main.lua"
-project_real=$(_realpath "$project")
 
-bin=$(_tmpdir)
-cat >"$bin/git" <<'EOF'
-#!/usr/bin/env sh
-if [ "$1" != "--git-dir" ] || [ "$2" != "$HOME/.dotfiles" ]; then
-  exit 2
-fi
-if [ "$3" != "--work-tree" ] || [ "$4" != "$HOME" ]; then
-  exit 2
-fi
-if [ "$5" != "ls-files" ] || [ "$6" != "--error-unmatch" ] || [ "$7" != "--" ]; then
-  exit 2
-fi
-case "$8" in
-  .bashrc|.config/nvim/init.lua)
-    exit 0
-    ;;
-esac
-exit 1
-EOF
-chmod +x "$bin/git"
-
-cat >"$bin/sley" <<EOF
-#!/usr/bin/env sh
-cwd=\$(pwd -P)
-case "\$cwd" in
-  "$project_real"|"$project_real"/*)
-    printf '{"repo_type":"git","root":"%s","ref":"main","counts":{"staged":0,"pending":0,"unstaged":0,"untracked":0},"dirty":false}\n' "$project_real"
-    exit 0
-    ;;
-esac
-printf '%s\n' 'sley: unsupported repo' >&2
-exit 2
-EOF
-chmod +x "$bin/sley"
-
-result=$(PATH="$bin:$PATH" _nvim_lua "
+result=$(_nvim_lua "
   vim.env.HOME = '$home'
+  package.loaded['nvim_workspace.core.workspace'] = nil
+  local lazygit = require('nvim_workspace.lazygit')
+  print(tostring(lazygit.opts_for_path('$home/.bashrc')))
+")
+expected="nil"
+_assert_eq "lazygit: generic default has no special repo args" "$expected" "$result"
+
+result=$(_nvim_lua "
+  vim.env.HOME = '$home'
+  require('nvim_workspace').setup({
+    lazygit = {
+      opts_for_path = function(path, ctx)
+        local rel = ctx.relative_to_default_root(path)
+        print('path=' .. path)
+        print('rel=' .. tostring(rel))
+        if rel == '.bashrc' or rel == '.config/nvim/init.lua' then
+          return {
+            cwd = ctx.default_root,
+            args = { '--repo-root', ctx.default_root, '--rel', rel },
+          }
+        end
+      end,
+    },
+  })
   package.loaded['nvim_workspace.core.workspace'] = nil
   local lazygit = require('nvim_workspace.lazygit')
   local dot_opts = lazygit.opts_for_path('$home/.bashrc')
@@ -62,24 +50,30 @@ result=$(PATH="$bin:$PATH" _nvim_lua "
   print(table.concat(opts.args, ' '))
   print(tostring(lazygit.opts_for_path('$home/untracked')))
 ")
-expected="$(printf '%s\n--work-tree %s --git-dir %s\n%s\n--work-tree %s --git-dir %s\nnil' \
-  "$home" "$home" "$home/.dotfiles" "$home" "$home" "$home/.dotfiles")"
-_assert_eq "lazygit: detects tracked dotfiles and returns bare repo args" \
+expected="$(printf 'path=%s\nrel=.bashrc\n%s\n--repo-root %s --rel .bashrc\npath=%s\nrel=.config/nvim/init.lua\n%s\n--repo-root %s --rel .config/nvim/init.lua\npath=%s\nrel=untracked\nnil' \
+  "$home/.bashrc" "$home" "$home" \
+  "$home/.config/nvim/init.lua" "$home" "$home" \
+  "$home/untracked")"
+_assert_eq "lazygit: host callback can return special repo args" \
   "$expected" "$result"
 
-missing_home="$tmp/missing-home"
-mkdir -p "$missing_home"
-touch "$missing_home/.bashrc"
-result=$(PATH="$bin:$PATH" _nvim_lua "
-  vim.env.HOME = '$missing_home'
+result=$(_nvim_lua "
+  vim.env.HOME = '$home'
+  require('nvim_workspace').setup({
+    lazygit = {
+      opts_for_path = function()
+        error('broken host policy')
+      end,
+    },
+  })
   package.loaded['nvim_workspace.core.workspace'] = nil
   local lazygit = require('nvim_workspace.lazygit')
-  print(tostring(lazygit.opts_for_path('$missing_home/.bashrc')))
+  print(tostring(lazygit.opts_for_path('$home/.bashrc')))
 ")
 expected="nil"
-_assert_eq "lazygit: missing dotfiles repo fails closed" "$expected" "$result"
+_assert_eq "lazygit: host callback failures fail closed" "$expected" "$result"
 
-result=$(PATH="$bin:$PATH" _nvim_lua "
+result=$(_nvim_lua "
   vim.env.HOME = '$home'
   package.loaded['nvim_workspace.core.workspace'] = nil
   local lazygit = require('nvim_workspace.lazygit')
@@ -89,10 +83,10 @@ result=$(PATH="$bin:$PATH" _nvim_lua "
   print(opts.cwd)
   print(tostring(opts.args))
 ")
-expected="$(printf '%s\n%s\nnil' "$project_real" "$project_real")"
+expected="$(printf '%s\n%s\nnil' "$project" "$project")"
 _assert_eq "lazygit: normal files use the detected VCS root" "$expected" "$result"
 
-result=$(PATH="$bin:$PATH" _nvim_lua "
+result=$(_nvim_lua "
   vim.env.HOME = '$home'
   package.loaded['nvim_workspace.core.workspace'] = nil
   local lazygit = require('nvim_workspace.lazygit')
@@ -103,11 +97,21 @@ result=$(PATH="$bin:$PATH" _nvim_lua "
   print(opts.cwd)
   print(tostring(opts.args))
 ")
-expected="$(printf '%s\nnil' "$project_real")"
+expected="$(printf '%s\nnil' "$project")"
 _assert_eq "lazygit: special buffers fall back to cwd context" "$expected" "$result"
 
-result=$(PATH="$bin:$PATH" _nvim_lua "
+result=$(_nvim_lua "
   vim.env.HOME = '$home'
+  require('nvim_workspace').setup({
+    lazygit = {
+      opts_for_path = function(_, ctx)
+        return {
+          cwd = ctx.default_root,
+          args = { '--repo-root', ctx.default_root },
+        }
+      end,
+    },
+  })
   package.loaded['nvim_workspace.core.workspace'] = nil
   local lazygit = require('nvim_workspace.lazygit')
   vim.api.nvim_command('edit $home/.bashrc')
@@ -121,8 +125,7 @@ result=$(PATH="$bin:$PATH" _nvim_lua "
   print(lazygit.open_with_snacks(snacks))
   print(called)
 ")
-expected="$(printf 'opened\n%s|--work-tree %s --git-dir %s' \
-  "$home" "$home" "$home/.dotfiles")"
+expected="$(printf 'opened\n%s|--repo-root %s' "$home" "$home")"
 _assert_eq "lazygit: optional Snacks launcher uses computed options" \
   "$expected" "$result"
 

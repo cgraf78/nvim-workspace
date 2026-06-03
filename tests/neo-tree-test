@@ -174,13 +174,8 @@ expected="$(printf 'false\ntrue\ntrue\n2')"
 _assert_eq "neo-tree: home subdirs without repos stay quiet browser roots" \
   "$expected" "$result"
 
-vcs_bin=$(_tmpdir)
-cat >"$vcs_bin/sley" <<EOF
-#!/usr/bin/env sh
-printf '{"repo_type":"git","root":"%s","ref":"main","counts":{"staged":0,"pending":0,"unstaged":0,"untracked":0},"dirty":false}\n' "$tmp/home/project"
-EOF
-chmod +x "$vcs_bin/sley"
-result=$(PATH="$vcs_bin:$PATH" _nvim_lua "
+mkdir -p "$tmp/home/project/.git"
+result=$(_nvim_lua "
   vim.env.HOME = '$tmp/home'
   package.loaded['nvim_workspace.core.workspace'] = nil
   local paths = require('nvim_workspace.neo_tree')

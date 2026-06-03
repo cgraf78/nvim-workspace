@@ -4,6 +4,10 @@ local function workspace()
   return require("nvim_workspace.core.workspace")
 end
 
+local function config()
+  return require("nvim_workspace.config").get().lazygit or {}
+end
+
 local function current_file()
   if vim.bo.buftype ~= "" then
     return nil
@@ -16,65 +20,45 @@ local function current_file()
   return name
 end
 
-local function dotfiles_git_dir()
-  return workspace().default_root() .. "/.dotfiles"
-end
-
-local function relative_to_home(path)
-  local rel = workspace().visible_relative_path(workspace().default_root(), path)
-  if not rel or rel == "" then
-    return nil
-  end
-  return rel
-end
-
-local function is_dot_tracked(path)
-  local rel = relative_to_home(path)
-  if not rel then
-    return false
-  end
-
-  local git_dir = dotfiles_git_dir()
-  local stat = vim.uv.fs_stat(git_dir)
-  if not stat or stat.type ~= "directory" then
-    return false
-  end
-
-  vim.fn.system({
-    "git",
-    "--git-dir",
-    git_dir,
-    "--work-tree",
-    workspace().default_root(),
-    "ls-files",
-    "--error-unmatch",
-    "--",
-    rel,
-  })
-  return vim.v.shell_error == 0
+local function callback_context()
+  local ws = workspace()
+  local default_root = ws.default_root()
+  return {
+    default_root = default_root,
+    relative_to_default_root = function(path)
+      local rel = ws.visible_relative_path(default_root, path)
+      if rel == "" then
+        return nil
+      end
+      return rel
+    end,
+  }
 end
 
 function M.opts_for_path(path)
-  if not path or not is_dot_tracked(path) then
+  if not path then
     return nil
   end
 
-  return {
-    cwd = workspace().default_root(),
-    args = {
-      "--work-tree",
-      workspace().default_root(),
-      "--git-dir",
-      dotfiles_git_dir(),
-    },
-  }
+  local opts_for_path = config().opts_for_path
+  if type(opts_for_path) ~= "function" then
+    return nil
+  end
+
+  -- Special repo handling is host policy. Keep failures local so LazyGit can
+  -- still open in the normal repo/current-directory context.
+  local ok, opts = pcall(opts_for_path, path, callback_context())
+  if ok and type(opts) == "table" then
+    return opts
+  end
+  return nil
 end
 
 function M.cwd_for_context()
   local ws = workspace()
   local dir = ws.current_file_dir() or ws.current_buffer_dir()
-  -- Only dot-tracked files should launch LazyGit against the broad bare HOME
-  -- repo. Other buffers use a normal VCS root or the local editing context.
+  -- Host-specific special repos are handled by opts_for_path(). The generic
+  -- fallback should stay on a normal VCS root or the local editing context.
   return ws.find_vcs_root(dir) or dir
 end
 

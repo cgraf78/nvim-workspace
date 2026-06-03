@@ -77,26 +77,13 @@ _assert_eq "session: load_current clears arglist and prunes missing buffers" \
   "$expected" "$result"
 
 save_tmp=$(_tmpdir)
-mkdir -p "$save_tmp/home" "$save_tmp/project/src"
+mkdir -p "$save_tmp/home" "$save_tmp/project/src" "$save_tmp/project/.git"
 save_file="$save_tmp/project/src/session.lua"
 printf '%s\n' 'print("session")' >"$save_file"
 project_root=$(_realpath "$save_tmp/project")
 home_root=$(_realpath "$save_tmp/home")
-sley_bin=$(_tmpdir)
-cat >"$sley_bin/sley" <<EOF
-#!/usr/bin/env sh
-cwd=\$(pwd -P)
-case "\$cwd" in
-  "$project_root"|"$project_root"/*)
-    printf '{"repo_type":"git","root":"%s","ref":"main","counts":{"staged":0,"pending":0,"unstaged":0,"untracked":0},"dirty":false}\n' "$project_root"
-    exit 0
-    ;;
-esac
-exit 2
-EOF
-chmod +x "$sley_bin/sley"
 
-result=$(PATH="$sley_bin:$PATH" _nvim_lua "
+result=$(_nvim_lua "
   local restore = require('nvim_workspace.session')
   vim.cmd('cd ' .. vim.fn.fnameescape('$home_root'))
   vim.cmd('edit ' .. vim.fn.fnameescape('$save_file'))
@@ -116,26 +103,12 @@ _assert_eq "session: saves file project session from different launch cwd" \
   "$expected" "$result"
 
 home_save_tmp=$(_tmpdir)
-mkdir -p "$home_save_tmp/home/project/src"
+mkdir -p "$home_save_tmp/home/project/src" "$home_save_tmp/home/project/.git"
 home_save_file="$home_save_tmp/home/project/src/session.lua"
 printf '%s\n' 'print("home")' >"$home_save_file"
 home_save_home=$(_realpath "$home_save_tmp/home")
 home_save_project=$(_realpath "$home_save_tmp/home/project")
-home_sley_bin=$(_tmpdir)
-cat >"$home_sley_bin/sley" <<EOF
-#!/usr/bin/env sh
-cwd=\$(pwd -P)
-case "\$cwd" in
-  "$home_save_project"|"$home_save_project"/*)
-    printf '{"repo_type":"git","root":"%s","ref":"main","counts":{"staged":0,"pending":0,"unstaged":0,"untracked":0},"dirty":false}\n' "$home_save_project"
-    exit 0
-    ;;
-esac
-exit 2
-EOF
-chmod +x "$home_sley_bin/sley"
-
-result=$(PATH="$home_sley_bin:$PATH" _nvim_lua "
+result=$(_nvim_lua "
   vim.env.HOME = '$home_save_home'
   package.loaded['nvim_workspace.core.workspace'] = nil
   local restore = require('nvim_workspace.session')
@@ -174,32 +147,14 @@ result=$(_nvim_lua "
 _assert_eq "session: save interface does not require active session" "1" "$result"
 
 multi_tmp=$(_tmpdir)
-mkdir -p "$multi_tmp/home" "$multi_tmp/project-a/src" "$multi_tmp/project-b/src"
+mkdir -p "$multi_tmp/home" "$multi_tmp/project-a/src" "$multi_tmp/project-a/.git"
+mkdir -p "$multi_tmp/project-b/src" "$multi_tmp/project-b/.git"
 printf '%s\n' 'print("a")' >"$multi_tmp/project-a/src/a.lua"
 printf '%s\n' 'print("b")' >"$multi_tmp/project-b/src/b.lua"
 multi_home=$(_realpath "$multi_tmp/home")
 multi_a=$(_realpath "$multi_tmp/project-a")
 multi_b=$(_realpath "$multi_tmp/project-b")
-multi_sley_bin=$(_tmpdir)
-cat >"$multi_sley_bin/sley" <<EOF
-#!/usr/bin/env sh
-cwd=\$(pwd -P)
-case "\$cwd" in
-  "$multi_a"|"$multi_a"/*)
-    root="$multi_a"
-    ;;
-  "$multi_b"|"$multi_b"/*)
-    root="$multi_b"
-    ;;
-  *)
-    exit 2
-    ;;
-esac
-printf '{"repo_type":"git","root":"%s","ref":"main","counts":{"staged":0,"pending":0,"unstaged":0,"untracked":0},"dirty":false}\n' "\$root"
-EOF
-chmod +x "$multi_sley_bin/sley"
-
-result=$(PATH="$multi_sley_bin:$PATH" _nvim_lua "
+result=$(_nvim_lua "
   local restore = require('nvim_workspace.session')
   vim.cmd('cd ' .. vim.fn.fnameescape('$multi_home'))
   vim.cmd('edit ' .. vim.fn.fnameescape('$multi_tmp/project-a/src/a.lua'))
@@ -304,18 +259,11 @@ _assert_eq "session: reuses discovered roots while preserving nested repo probes
   "$expected" "$result"
 
 fail_tmp=$(_tmpdir)
-mkdir -p "$fail_tmp/home" "$fail_tmp/project/src"
+mkdir -p "$fail_tmp/home" "$fail_tmp/project/src" "$fail_tmp/project/.git"
 printf '%s\n' 'print("fail")' >"$fail_tmp/project/src/fail.lua"
 fail_home=$(_realpath "$fail_tmp/home")
 fail_project=$(_realpath "$fail_tmp/project")
-fail_sley_bin=$(_tmpdir)
-cat >"$fail_sley_bin/sley" <<EOF
-#!/usr/bin/env sh
-printf '{"repo_type":"git","root":"%s","ref":"main","counts":{"staged":0,"pending":0,"unstaged":0,"untracked":0},"dirty":false}\n' "$fail_project"
-EOF
-chmod +x "$fail_sley_bin/sley"
-
-result=$(PATH="$fail_sley_bin:$PATH" _nvim_lua "
+result=$(_nvim_lua "
   local restore = require('nvim_workspace.session')
   vim.cmd('cd ' .. vim.fn.fnameescape('$fail_home'))
   vim.cmd('edit ' .. vim.fn.fnameescape('$fail_tmp/project/src/fail.lua'))

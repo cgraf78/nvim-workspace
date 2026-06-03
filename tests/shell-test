@@ -10,39 +10,16 @@ echo "=== shell integration ==="
 tmp=$(_tmpdir)
 home="$tmp/home"
 project="$tmp/project"
-overlay="$home/.dotfiles-work"
-mkdir -p "$home/.dotfiles" "$home/.config/shell/lib" "$home/.local/bin"
-mkdir -p "$project/scripts" "$overlay/home/.config/shell/lib"
+overlay="$home/.workspace-work"
+mkdir -p "$home/.config/shell/lib" "$home/.local/bin"
+mkdir -p "$project/scripts" "$project/.git" "$overlay/home/.config/shell/lib" "$overlay/.git"
 touch "$home/.bashrc" "$home/.config/shell/lib/common.bash"
 touch "$home/.local/bin/agent-hook-test" "$home/.local/bin/plain-tool"
 touch "$project/scripts/run.sh" "$overlay/home/.config/shell/lib/overlay.bash"
 project_real=$(_realpath "$project")
 overlay_real=$(_realpath "$overlay")
 
-bin=$(_tmpdir)
-cat >"$bin/sley" <<EOF
-#!/usr/bin/env sh
-cwd=\$(pwd -P)
-if [ "$1" = "status" ] && [ "$2" = "--json" ] && [ "${SLEY_BARE_REPO_GIT_DIR:-}" = "$home/.dotfiles" ]; then
-  printf '{"repo_type":"git","root":"%s","ref":"main","counts":{"staged":0,"pending":0,"unstaged":0,"untracked":0},"dirty":false}\n' "$home"
-  exit 0
-fi
-case "\$cwd" in
-  "$project_real"|"$project_real"/*)
-    printf '{"repo_type":"git","root":"%s","ref":"main","counts":{"staged":0,"pending":0,"unstaged":0,"untracked":0},"dirty":false}\n' "$project_real"
-    exit 0
-    ;;
-  "$overlay_real"|"$overlay_real"/*)
-    printf '{"repo_type":"git","root":"%s","ref":"main","counts":{"staged":0,"pending":0,"unstaged":0,"untracked":0},"dirty":false}\n' "$overlay_real"
-    exit 0
-    ;;
-esac
-printf '%s\n' 'sley: unsupported repo' >&2
-exit 2
-EOF
-chmod +x "$bin/sley"
-
-result=$(PATH="$bin:$PATH" _nvim_lua "
+result=$(_nvim_lua "
   vim.env.HOME = '$home'
   package.loaded['nvim_workspace.core.workspace'] = nil
   local shell = require('nvim_workspace.shell')
@@ -57,7 +34,7 @@ expected="$(printf '%s\n**/*@(.sh|.inc|.bash|.zsh|.command)\n%s\n%s\n*.sh,*.inc,
   "$project_real" "$project_real" "$project_real")"
 _assert_eq "shell: normal repos use VCS root and recursive globs" "$expected" "$result"
 
-result=$(PATH="$bin:$PATH" _nvim_lua "
+result=$(_nvim_lua "
   vim.env.HOME = '$home'
   package.loaded['nvim_workspace.core.workspace'] = nil
   require('nvim_workspace').setup({
@@ -69,9 +46,16 @@ result=$(PATH="$bin:$PATH" _nvim_lua "
 expected="**/*.bash"
 _assert_eq "shell: shell_glob customizes the derived recursive glob" "$expected" "$result"
 
-result=$(PATH="$bin:$PATH" _nvim_lua "
+result=$(_nvim_lua "
   vim.env.HOME = '$home'
   package.loaded['nvim_workspace.core.workspace'] = nil
+  require('nvim_workspace').setup({
+    workspace = {
+      home_workspace_detector = function()
+        return '$home'
+      end,
+    },
+  })
   local shell = require('nvim_workspace.shell')
   print(shell.root_for('$home/.bashrc'))
   print(shell.glob_for('$home'))
@@ -86,17 +70,22 @@ expected="$(printf '%s\n{.bashrc,.bash_profile,.profile,.zshenv,.zprofile,.zshrc
   "$home" "$home" "$home/.bashrc")"
 _assert_eq "shell: default HOME policy is bounded to startup files" "$expected" "$result"
 
-result=$(PATH="$bin:$PATH" _nvim_lua "
+result=$(_nvim_lua "
   vim.env.HOME = '$home'
   package.loaded['nvim_workspace.core.workspace'] = nil
   require('nvim_workspace').setup({
+    workspace = {
+      home_workspace_detector = function()
+        return '$home'
+      end,
+    },
     shell = {
       home_globs = { '.local/bin/agent-hook-*' },
       home_dirs = {
         { prefix = '.config/shell/', glob = '.config/shell/**/*@(.sh|.bash)' },
         { prefix = '.local/bin/', direct = true },
       },
-      overlay = { enabled = true },
+      overlay = { enabled = true, root_prefix = '.workspace-' },
     },
   })
   local shell = require('nvim_workspace.shell')
@@ -113,7 +102,7 @@ expected="$(printf 'true\n%s\n%s\n%s\n{.bashrc,.bash_profile,.profile,.zshenv,.z
 _assert_eq "shell: setup recognizes direct HOME paths without scanning all HOME" \
   "$expected" "$result"
 
-result=$(PATH="$bin:$PATH" _nvim_lua "
+result=$(_nvim_lua "
   vim.env.HOME = '$home'
   package.loaded['nvim_workspace.core.workspace'] = nil
   require('nvim_workspace').setup({
@@ -121,7 +110,7 @@ result=$(PATH="$bin:$PATH" _nvim_lua "
       home_dirs = {
         { prefix = '.config/shell/', glob = '.config/shell/**/*@(.sh|.bash)' },
       },
-      overlay = { enabled = true },
+      overlay = { enabled = true, root_prefix = '.workspace-' },
     },
   })
   local shell = require('nvim_workspace.shell')
