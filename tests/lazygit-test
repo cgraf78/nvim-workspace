@@ -98,7 +98,7 @@ result=$(_nvim_lua "
   print(opts.cwd)
   print(tostring(opts.args))
 ")
-expected="$(printf '%s\nnil' "$project")"
+expected="$(printf '%s\nnil' "$project_real")"
 _assert_eq "lazygit: special buffers fall back to cwd context" "$expected" "$result"
 
 result=$(_nvim_lua "
