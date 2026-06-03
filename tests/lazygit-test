@@ -10,6 +10,7 @@ echo "=== lazygit: workspace-aware options ==="
 tmp=$(_tmpdir)
 home="$tmp/home"
 project="$tmp/project"
+project_real=$(_realpath "$project")
 mkdir -p "$home/.config/nvim" "$project/src" "$project/.git"
 touch "$home/.bashrc" "$home/.config/nvim/init.lua" "$home/untracked"
 touch "$project/src/main.lua"
@@ -83,7 +84,7 @@ result=$(_nvim_lua "
   print(opts.cwd)
   print(tostring(opts.args))
 ")
-expected="$(printf '%s\n%s\nnil' "$project" "$project")"
+expected="$(printf '%s\n%s\nnil' "$project_real" "$project_real")"
 _assert_eq "lazygit: normal files use the detected VCS root" "$expected" "$result"
 
 result=$(_nvim_lua "
