@@ -18,7 +18,7 @@ local defaults = {
   home_dirs = {},
   overlay = {
     enabled = false,
-    root_prefix = ".dotfiles-",
+    root_prefix = nil,
     home_dir = "home",
   },
 }
@@ -161,7 +161,11 @@ local function is_home_relative(relative, config)
 end
 
 local function overlay_context(path, config)
-  if not config.overlay.enabled then
+  if
+    not config.overlay.enabled
+    or type(config.overlay.root_prefix) ~= "string"
+    or config.overlay.root_prefix == ""
+  then
     return nil, nil
   end
 
@@ -184,7 +188,11 @@ local function overlay_context(path, config)
 end
 
 local function is_overlay_root(root, config)
-  if not config.overlay.enabled then
+  if
+    not config.overlay.enabled
+    or type(config.overlay.root_prefix) ~= "string"
+    or config.overlay.root_prefix == ""
+  then
     return false
   end
 
