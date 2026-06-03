@@ -36,6 +36,18 @@ function M.default_root()
   return require("nvim_workspace.core.workspace").default_root()
 end
 
+function M.normalize(path)
+  return require("nvim_workspace.core.workspace").normalize(path)
+end
+
+function M.canonical(path)
+  return require("nvim_workspace.core.workspace").canonical(path)
+end
+
+function M.relative_path(root, path)
+  return require("nvim_workspace.core.workspace").relative_path(root, path)
+end
+
 function M.current_buffer_dir()
   return require("nvim_workspace.core.workspace").current_buffer_dir()
 end
@@ -65,6 +77,16 @@ function M.current_file_repo_root()
     return nil
   end
   return root
+end
+
+-- Extension sources can share picker query syntax without depending on picker
+-- internals. This keeps indexed backends aligned with the built-in fd source.
+function M.path_query_terms(prompt)
+  return require("nvim_workspace.picker.scope").path_query_terms(prompt)
+end
+
+function M.unordered_path_regex(prompt)
+  return require("nvim_workspace.picker.scope").unordered_path_regex(prompt)
 end
 
 return M

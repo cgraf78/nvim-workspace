@@ -13,12 +13,17 @@ result=$(_nvim_lua '
   print(type(workspace.files))
   print(type(workspace.grep))
   print(type(workspace.default_root))
+  print(type(workspace.normalize))
+  print(type(workspace.canonical))
+  print(type(workspace.relative_path))
   print(type(workspace.current_file_dir))
   print(type(workspace.current_buffer_dir))
   print(type(workspace.current_file_repo_root))
   print(type(workspace.repo_root))
+  print(type(workspace.path_query_terms))
+  print(type(workspace.unordered_path_regex))
 ')
-expected="$(printf 'function\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction')"
+expected="$(printf 'function\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction')"
 _assert_eq "api: exposes facade entrypoints without internal module escape hatch" "$expected" "$result"
 
 result=$(_nvim_lua '
@@ -70,6 +75,21 @@ result=$(_nvim_lua '
 ')
 expected="$(printf 'true\nFiles index\ntrue\nGrep index')"
 _assert_eq "api: source registration delegates to picker modules" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local workspace = require("nvim_workspace")
+  local tmp = vim.fn.tempname()
+  vim.fn.mkdir(tmp .. "/repo/src", "p")
+  local file = tmp .. "/repo/src/example.lua"
+  vim.fn.writefile({ "return true" }, file)
+  print(workspace.normalize(file) == tmp .. "/repo/src")
+  print(workspace.canonical(tmp .. "/repo") == vim.uv.fs_realpath(tmp .. "/repo"))
+  print(workspace.relative_path(tmp .. "/repo", file))
+  print(table.concat(workspace.path_query_terms("foo bar"), ","))
+  print(workspace.unordered_path_regex("foo bar"))
+')
+expected="$(printf 'true\ntrue\nsrc/example.lua\nfoo,bar\nfoo.*bar|bar.*foo')"
+_assert_eq "api: exposes path and query helpers through facade" "$expected" "$result"
 
 result=$(_nvim_lua '
   require("nvim_workspace").setup({

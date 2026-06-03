@@ -116,6 +116,20 @@ register_grep_source({source}, {opts}) ~
 default_root() ~
   Return the broad default search root.
 
+                                                        *nvim_workspace.normalize()*
+normalize({path}) ~
+  Return an absolute directory path for {path}. File paths resolve to their
+  parent directory.
+
+                                                        *nvim_workspace.canonical()*
+canonical({path}) ~
+  Return the real filesystem spelling for a normalized path when possible.
+
+                                                        *nvim_workspace.relative_path()*
+relative_path({root}, {path}) ~
+  Return {path} relative to {root} after canonical comparison, or nil when
+  {path} is outside {root}.
+
                                                         *nvim_workspace.current_file_dir()*
 current_file_dir() ~
   Return the current real file buffer's directory, or nil for special buffers.
@@ -134,6 +148,14 @@ current_file_repo_root() ~
                                                         *nvim_workspace.repo_root()*
 repo_root({start}) ~
   Return the detected workspace root for {start}, or a normalized fallback.
+
+                                                        *nvim_workspace.path_query_terms()*
+path_query_terms({prompt}) ~
+  Split a picker prompt into path-query terms.
+
+                                                        *nvim_workspace.unordered_path_regex()*
+unordered_path_regex({prompt}) ~
+  Return the order-independent path regex used by file source integrations.
 
 ==============================================================================
 NEO-TREE                                       *nvim-workspace-neo-tree*

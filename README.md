@@ -85,12 +85,15 @@ Public integrations should use only the top-level module:
 - `grep(opts)` opens the content picker.
 - `register_file_source(source, opts)` adds a file picker backend.
 - `register_grep_source(source, opts)` adds a grep picker backend.
-- `default_root()`, `current_file_dir()`, and `current_buffer_dir()` expose
-  workspace context without requiring internal modules.
+- `default_root()`, `normalize(path)`, `canonical(path)`, `relative_path(root,
+  path)`, `current_file_dir()`, and `current_buffer_dir()` expose workspace
+  context without requiring internal modules.
 - `current_file_repo_root()` returns the current file buffer's detected repo
   root, or nil for special buffers and files without a detected root.
 - `repo_root(start)` returns a usable workspace root, falling back to the
   normalized start directory when no repo is detected.
+- `path_query_terms(prompt)` and `unordered_path_regex(prompt)` expose the same
+  query parsing the built-in file picker uses for extension sources.
 
 Optional integration modules are public:
 
