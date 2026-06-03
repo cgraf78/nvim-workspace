@@ -8,6 +8,7 @@
 -- Only functions re-exported from that facade are part of the public API.
 
 local M = {}
+local uv = require("nvim_workspace.core.uv")
 local vcs_markers = { ".git", ".hg", ".jj", ".svn" }
 
 local function strip_trailing_slash(path)
@@ -50,18 +51,18 @@ local function load_home_aliases()
   end
 
   home_aliases = {}
-  local scan = vim.uv.fs_scandir(home)
+  local scan = uv.fs_scandir(home)
   if not scan then
     return home_aliases
   end
 
   while true do
-    local name = vim.uv.fs_scandir_next(scan)
+    local name = uv.fs_scandir_next(scan)
     if not name then
       break
     end
     local visible = home .. "/" .. name
-    local real = vim.uv.fs_realpath(visible)
+    local real = uv.fs_realpath(visible)
     if real then
       real = strip_trailing_slash(real)
       -- Prefer user-facing symlinks such as ~/repo over canonical mount paths,
@@ -87,7 +88,7 @@ local function home_visible_path(path)
     return normalized
   end
 
-  local canonical = strip_trailing_slash(vim.uv.fs_realpath(normalized) or normalized)
+  local canonical = strip_trailing_slash(uv.fs_realpath(normalized) or normalized)
   for _, alias in ipairs(load_home_aliases()) do
     if path_contains(alias.canonical, canonical) then
       return alias.visible .. canonical:sub(#alias.canonical + 1)
@@ -110,7 +111,7 @@ function M.normalize(path)
   end
 
   local expanded = vim.fn.expand(path)
-  local stat = vim.uv.fs_stat(expanded)
+  local stat = uv.fs_stat(expanded)
   if stat and stat.type ~= "directory" then
     expanded = vim.fs.dirname(expanded)
   end
@@ -125,14 +126,14 @@ function M.canonical(path)
   -- Compare real paths when possible so symlinked roots match repo roots
   -- returned by host detectors, while preserving normalized paths for missing
   -- dirs.
-  return strip_trailing_slash(vim.uv.fs_realpath(normalized) or normalized)
+  return strip_trailing_slash(uv.fs_realpath(normalized) or normalized)
 end
 
 -- Return the active file's directory while preserving visible HOME aliases.
 -- Missing files are handled as new buffers rooted at their existing parent.
 local function file_dir(name)
   local visible = home_visible_path(name)
-  local stat = vim.uv.fs_stat(vim.fn.expand(visible))
+  local stat = uv.fs_stat(vim.fn.expand(visible))
   if stat and stat.type == "directory" then
     return M.normalize(visible)
   end
@@ -165,7 +166,7 @@ function M.current_buffer_dir()
   if dir then
     return dir
   end
-  return M.normalize(home_visible_path(vim.uv.cwd() or home))
+  return M.normalize(home_visible_path(uv.cwd() or home))
 end
 
 -- True when path is under root, accepting either visible or canonical forms.
@@ -192,7 +193,7 @@ function M.visible_path(root, path)
 
   local canonical_root = M.canonical(root)
   local canonical_path =
-    strip_trailing_slash(vim.uv.fs_realpath(M.absolute_path(path)) or M.absolute_path(path))
+    strip_trailing_slash(uv.fs_realpath(M.absolute_path(path)) or M.absolute_path(path))
   if path_contains(canonical_root, canonical_path) then
     return normalized_root .. canonical_path:sub(#canonical_root + 1)
   end
@@ -205,7 +206,7 @@ function M.relative_path(root, path)
   local canonical_root = M.canonical(root)
   local normalized_path = M.absolute_path(path)
   local canonical_path =
-    strip_trailing_slash(vim.uv.fs_realpath(normalized_path) or normalized_path)
+    strip_trailing_slash(uv.fs_realpath(normalized_path) or normalized_path)
   if canonical_path == canonical_root then
     return ""
   end

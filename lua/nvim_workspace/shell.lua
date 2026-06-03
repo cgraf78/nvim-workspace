@@ -1,4 +1,5 @@
 local M = {}
+local uv = require("nvim_workspace.core.uv")
 
 local default_shell_glob = "*@(.sh|.inc|.bash|.zsh|.command)"
 
@@ -33,7 +34,7 @@ end
 
 local function canonical_path(path)
   local normalized = normalize(path)
-  return vim.uv.fs_realpath(normalized) or normalized
+  return uv.fs_realpath(normalized) or normalized
 end
 
 local function home()
@@ -242,7 +243,7 @@ end
 function M.root_for(path)
   local config = shell_config()
   local normalized = normalize(path)
-  local stat = vim.uv.fs_stat(normalized)
+  local stat = uv.fs_stat(normalized)
   local start = stat and stat.type == "directory" and normalized or vim.fs.dirname(normalized)
 
   local vcs_root = workspace().find_vcs_root(start)

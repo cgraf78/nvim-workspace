@@ -1,4 +1,5 @@
 local M = {}
+local uv = require("nvim_workspace.core.uv")
 
 -- Public facade. Prefer this module in host configs so internal module names
 -- can evolve without leaking plugin structure into user-facing integrations.
@@ -72,7 +73,7 @@ function M.current_file_repo_root()
     return nil
   end
 
-  local stat = vim.uv.fs_stat(root)
+  local stat = uv.fs_stat(root)
   if not stat or stat.type ~= "directory" then
     return nil
   end

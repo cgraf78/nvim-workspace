@@ -61,6 +61,19 @@ expected="$(printf 'function\nfunction\nfunction\nfunction\nfunction\nfunction\n
 _assert_eq "api: exposes optional integration modules explicitly" "$expected" "$result"
 
 result=$(_nvim_lua '
+  local saved_uv = vim.uv
+  vim.uv = nil
+  package.loaded["nvim_workspace.core.uv"] = nil
+  local uv = require("nvim_workspace.core.uv")
+  print(uv == vim.loop)
+  vim.uv = saved_uv
+')
+_assert_eq "api: uv helper falls back to vim.loop" "true" "$result"
+
+result=$(grep -R -n "vim\\.uv" "$TEST_ROOT/lua" | grep -v "/lua/nvim_workspace/core/uv.lua" || true)
+_assert_eq "api: uv access stays behind compatibility helper" "" "$result"
+
+result=$(_nvim_lua '
   local workspace = require("nvim_workspace")
   local files_fn = function() end
   local grep_fn = function() end
@@ -77,13 +90,14 @@ expected="$(printf 'true\nFiles index\ntrue\nGrep index')"
 _assert_eq "api: source registration delegates to picker modules" "$expected" "$result"
 
 result=$(_nvim_lua '
+  local uv = require("nvim_workspace.core.uv")
   local workspace = require("nvim_workspace")
   local tmp = vim.fn.tempname()
   vim.fn.mkdir(tmp .. "/repo/src", "p")
   local file = tmp .. "/repo/src/example.lua"
   vim.fn.writefile({ "return true" }, file)
   print(workspace.normalize(file) == tmp .. "/repo/src")
-  print(workspace.canonical(tmp .. "/repo") == vim.uv.fs_realpath(tmp .. "/repo"))
+  print(workspace.canonical(tmp .. "/repo") == uv.fs_realpath(tmp .. "/repo"))
   print(workspace.relative_path(tmp .. "/repo", file))
   print(table.concat(workspace.path_query_terms("foo bar"), ","))
   print(workspace.unordered_path_regex("foo bar"))

@@ -1,4 +1,5 @@
 local M = {}
+local uv = require("nvim_workspace.core.uv")
 local reveal_scheduled = false
 local last_file
 
@@ -16,7 +17,7 @@ local function current_file()
     return nil
   end
 
-  local stat = vim.uv.fs_stat(path)
+  local stat = uv.fs_stat(path)
   if not stat or stat.type == "directory" then
     return nil
   end
