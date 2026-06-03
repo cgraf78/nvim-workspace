@@ -97,6 +97,9 @@ Modules under `nvim_workspace.core` and `nvim_workspace.picker` are internal
 implementation modules. They are tested directly, but host configs should not
 depend on them.
 
+This README documents the common integration surface. For the complete public
+API reference, use `:help nvim-workspace-api`.
+
 ## Neo-tree
 
 ```lua
