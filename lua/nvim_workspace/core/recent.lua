@@ -7,6 +7,7 @@
 -- interact with recent files through the public pickers.
 
 local M = {}
+local uv = require("nvim_workspace.core.uv")
 
 -- Session-visited files always outrank oldfiles (cross-session) so the picker
 -- prioritizes what you're actively working on over yesterday's context.
@@ -83,7 +84,7 @@ function M.get()
   end
 
   cache, cache_set = M.merge(session_files, vim.v.oldfiles, function(f)
-    return vim.uv.fs_stat(f) ~= nil
+    return uv.fs_stat(f) ~= nil
   end)
   dirty = false
   return cache, cache_set

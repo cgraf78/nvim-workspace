@@ -13,6 +13,7 @@
 -- require("nvim_workspace").register_grep_source() from host configs.
 
 local M = {}
+local uv = require("nvim_workspace.core.uv")
 
 M.sources = {}
 
@@ -100,7 +101,7 @@ function M.find(opts)
     return type(source) == "function" and source or source.run
   end
 
-  local debounce_timer = assert(vim.uv.new_timer())
+  local debounce_timer = assert(uv.new_timer())
   local last_query = ""
   local active_procs = {}
   local query_gen = 0

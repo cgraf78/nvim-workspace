@@ -1,4 +1,5 @@
 local M = {}
+local uv = require("nvim_workspace.core.uv")
 
 local vcs_markers = { ".git", ".hg", ".jj", ".svn" }
 local group_name = "nvim_workspace_session"
@@ -28,7 +29,7 @@ end
 function M.delete_missing_buffers()
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     local name = vim.api.nvim_buf_get_name(buf)
-    if name ~= "" and not vim.uv.fs_stat(name) then
+    if name ~= "" and not uv.fs_stat(name) then
       vim.api.nvim_buf_delete(buf, { force = true })
     end
   end
@@ -213,7 +214,7 @@ function M.setup(opts)
     save_timer:stop()
     save_timer:close()
   end
-  save_timer = assert(vim.uv.new_timer())
+  save_timer = assert(uv.new_timer())
 
   vim.api.nvim_create_autocmd("StdinReadPre", {
     group = group,
