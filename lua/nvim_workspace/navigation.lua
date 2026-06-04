@@ -1,5 +1,8 @@
 local M = {}
 
+local list = require("nvim_workspace.core.list")
+local lsp = require("nvim_workspace.core.lsp")
+
 local definition_method = "textDocument/definition"
 
 local default_shell_filetypes = {
@@ -57,7 +60,7 @@ end
 
 function M.has_lsp_definition(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
-  for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr })) do
+  for _, client in ipairs(lsp.get_clients({ bufnr = bufnr })) do
     if supports_method(client, bufnr, definition_method) then
       return true
     end
@@ -402,7 +405,7 @@ local function result_locations(result)
   -- Normalize here so the dispatcher can distinguish "empty result" from
   -- "server found something" without using vim.lsp.buf.definition()'s terminal
   -- notification path.
-  if vim.islist(result) then
+  if list.islist(result) then
     return result
   end
 
@@ -463,7 +466,7 @@ end
 local function request_lsp_definition(bufnr, on_empty)
   local clients = vim.tbl_filter(function(client)
     return supports_method(client, bufnr, definition_method)
-  end, vim.lsp.get_clients({ bufnr = bufnr }))
+  end, lsp.get_clients({ bufnr = bufnr }))
   if #clients == 0 then
     return false
   end
