@@ -1,5 +1,7 @@
 local M = {}
 
+local list = require("nvim_workspace.core.list")
+
 local definition_method = "textDocument/definition"
 
 local default_shell_filetypes = {
@@ -402,7 +404,7 @@ local function result_locations(result)
   -- Normalize here so the dispatcher can distinguish "empty result" from
   -- "server found something" without using vim.lsp.buf.definition()'s terminal
   -- notification path.
-  if vim.islist(result) then
+  if list.islist(result) then
     return result
   end
 

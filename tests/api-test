@@ -74,6 +74,23 @@ result=$(grep -R -n "vim\\.uv" "$TEST_ROOT/lua" | grep -v "/lua/nvim_workspace/c
 _assert_eq "api: uv access stays behind compatibility helper" "" "$result"
 
 result=$(_nvim_lua '
+  local saved_islist = vim.islist
+  vim.islist = nil
+  package.loaded["nvim_workspace.core.list"] = nil
+  local list = require("nvim_workspace.core.list")
+  print(list.islist({ "a", "b" }))
+  print(list.islist({ key = "value" }))
+  print(list.islist("not a table"))
+  print(list.islist({ [2] = "gap" }))
+  vim.islist = saved_islist
+')
+expected="$(printf 'true\nfalse\nfalse\nfalse')"
+_assert_eq "api: list helper works without vim.islist" "$expected" "$result"
+
+result=$(grep -R -n "vim\\.islist" "$TEST_ROOT/lua" | grep -v "/lua/nvim_workspace/core/list.lua" || true)
+_assert_eq "api: islist access stays behind compatibility helper" "" "$result"
+
+result=$(_nvim_lua '
   local workspace = require("nvim_workspace")
   local files_fn = function() end
   local grep_fn = function() end
