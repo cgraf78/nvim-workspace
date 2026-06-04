@@ -91,6 +91,30 @@ result=$(grep -R -n "vim\\.islist" "$TEST_ROOT/lua" | grep -v "/lua/nvim_workspa
 _assert_eq "api: islist access stays behind compatibility helper" "" "$result"
 
 result=$(_nvim_lua '
+  local saved_get_clients = vim.lsp.get_clients
+  local saved_get_active_clients = vim.lsp.get_active_clients
+  vim.lsp.get_clients = nil
+  vim.lsp.get_active_clients = function(opts)
+    print(opts.bufnr)
+    return {
+      { id = 7 },
+    }
+  end
+  package.loaded["nvim_workspace.core.lsp"] = nil
+  local lsp = require("nvim_workspace.core.lsp")
+  local clients = lsp.get_clients({ bufnr = 13 })
+  print(#clients)
+  print(clients[1].id)
+  vim.lsp.get_clients = saved_get_clients
+  vim.lsp.get_active_clients = saved_get_active_clients
+')
+expected="$(printf '13\n1\n7')"
+_assert_eq "api: lsp helper falls back to get_active_clients" "$expected" "$result"
+
+result=$(grep -R -n "vim\\.lsp\\.get_clients" "$TEST_ROOT/lua" | grep -v "/lua/nvim_workspace/core/lsp.lua" || true)
+_assert_eq "api: lsp client lookup stays behind compatibility helper" "" "$result"
+
+result=$(_nvim_lua '
   local workspace = require("nvim_workspace")
   local files_fn = function() end
   local grep_fn = function() end
