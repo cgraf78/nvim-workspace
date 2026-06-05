@@ -17,8 +17,10 @@ local cache = nil
 local cache_set = nil
 local dirty = true
 local max_session_files = 200
+local group = vim.api.nvim_create_augroup("nvim_workspace_recent", { clear = true })
 
 vim.api.nvim_create_autocmd("BufEnter", {
+  group = group,
   callback = function(args)
     -- Only real file buffers belong in the MRU list. Special buffers often have
     -- synthetic names that cannot be searched or previewed as files.

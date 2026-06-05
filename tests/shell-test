@@ -48,6 +48,23 @@ _assert_eq "shell: shell_glob customizes the derived recursive glob" "$expected"
 result=$(_nvim_lua "
   vim.env.HOME = '$home'
   package.loaded['nvim_workspace.core.workspace'] = nil
+  local workspace = require('nvim_workspace')
+  local shell = require('nvim_workspace.shell')
+  workspace.setup({
+    shell = { shell_glob = '*.bash' },
+  })
+  print(shell.glob_for('$project'))
+  workspace.setup({
+    shell = { shell_glob = '*.zsh' },
+  })
+  print(shell.glob_for('$project'))
+")
+expected="$(printf '**/*.bash\n**/*.zsh')"
+_assert_eq "shell: cached policy refreshes after setup changes" "$expected" "$result"
+
+result=$(_nvim_lua "
+  vim.env.HOME = '$home'
+  package.loaded['nvim_workspace.core.workspace'] = nil
   require('nvim_workspace').setup({
     workspace = {
       home_workspace_detector = function()
