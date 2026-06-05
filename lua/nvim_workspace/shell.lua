@@ -24,6 +24,11 @@ local defaults = {
   },
 }
 
+-- Root callbacks can run for every shell buffer and fallback navigation lookup.
+-- Cache the derived policy until setup() replaces the raw config table.
+local shell_config_source = nil
+local shell_config_cache = nil
+
 local function workspace()
   return require("nvim_workspace.core.workspace")
 end
@@ -47,9 +52,13 @@ end
 
 local function shell_config()
   local raw = require("nvim_workspace.config").get().shell or {}
+  if shell_config_cache and raw == shell_config_source then
+    return shell_config_cache
+  end
+
   local shell_glob = raw.shell_glob or defaults.shell_glob
   local overlay = vim.tbl_deep_extend("force", vim.deepcopy(defaults.overlay), raw.overlay or {})
-  return {
+  local config = {
     shell_glob = shell_glob,
     recursive_glob = raw.recursive_glob or ("**/" .. shell_glob),
     file_globs = copy_list(raw.file_globs or defaults.file_globs),
@@ -57,7 +66,15 @@ local function shell_config()
     home_globs = copy_list(raw.home_globs or defaults.home_globs),
     home_dirs = copy_list(raw.home_dirs or defaults.home_dirs),
     overlay = overlay,
+    home_file_lookup = {},
   }
+  for _, path in ipairs(config.home_files) do
+    config.home_file_lookup[path] = true
+  end
+
+  shell_config_source = raw
+  shell_config_cache = config
+  return config
 end
 
 local function home_roots()
@@ -71,14 +88,6 @@ end
 
 local function relative_to_home(path)
   return workspace().visible_relative_path(home(), path)
-end
-
-local function home_file_set(config)
-  local set = {}
-  for _, path in ipairs(config.home_files) do
-    set[path] = true
-  end
-  return set
 end
 
 local function path_matches_prefix(relative, item)
@@ -145,7 +154,7 @@ local function is_home_relative(relative, config)
   if not relative then
     return false
   end
-  if home_file_set(config)[relative] then
+  if config.home_file_lookup[relative] then
     return true
   end
   for _, pattern in ipairs(config.home_globs) do
