@@ -130,7 +130,7 @@ result=$(_nvim_lua "
 expected="$(printf '200\ntrue\nnil')"
 _assert_eq "get: session MRU is bounded for large buffer sets" "$expected" "$result"
 
-persist_tmp=$(_tmpdir)
+persist_tmp=$(_realpath "$(_tmpdir)")
 persist_a=$persist_tmp/a.lua
 persist_b=$persist_tmp/b.lua
 persist_store=$persist_tmp/recent.json
