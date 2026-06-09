@@ -1,7 +1,8 @@
--- MRU file list: session-visited files first (current session), then oldfiles
--- (cross-session via shada). Oldfiles are capped during merge, while the
--- session list has a separate larger bound so active work is not dropped just
--- because shada has many stale entries.
+-- MRU file list: session-visited files first, then plugin-persisted recent
+-- files from previous sessions, then oldfiles (cross-session via shada).
+-- ShaDa does not keep buffers deleted before exit in v:oldfiles, so the
+-- plugin-owned list preserves the "I opened this file recently" signal across
+-- normal buffer-closing workflows.
 --
 -- Internal module: picker modules consume this directly; host configs should
 -- interact with recent files through the public pickers.
@@ -16,8 +17,129 @@ local session_set = {}
 local cache = nil
 local cache_set = nil
 local dirty = true
+local persisted_files = nil
+local persisted_set = nil
+local persist_dirty = false
 local max_session_files = 200
 local group = vim.api.nvim_create_augroup("nvim_workspace_recent", { clear = true })
+
+local function store_path()
+  if
+    type(vim.env.NVIM_WORKSPACE_RECENT_FILE) == "string"
+    and vim.env.NVIM_WORKSPACE_RECENT_FILE ~= ""
+  then
+    return vim.env.NVIM_WORKSPACE_RECENT_FILE
+  end
+  -- Tests and one-off headless probes often use -i NONE to disable editor
+  -- state. Respect that boundary so they do not read the user's real MRU file.
+  if vim.o.shadafile == "NONE" then
+    return nil
+  end
+  return vim.fn.stdpath("state") .. "/nvim-workspace/recent.json"
+end
+
+local function add_file(files, seen, name, require_existing)
+  if type(name) ~= "string" or name == "" or seen[name] then
+    return false
+  end
+  if require_existing and not uv.fs_stat(name) then
+    return false
+  end
+  seen[name] = true
+  files[#files + 1] = name
+  return true
+end
+
+local function load_persisted()
+  if persisted_files then
+    return persisted_files, persisted_set
+  end
+
+  persisted_files = {}
+  persisted_set = {}
+
+  local path = store_path()
+  if not path then
+    return persisted_files, persisted_set
+  end
+
+  local ok_read, lines = pcall(vim.fn.readfile, path)
+  if not ok_read or type(lines) ~= "table" then
+    return persisted_files, persisted_set
+  end
+
+  local ok, decoded = pcall(vim.json.decode, table.concat(lines, "\n"))
+  local files = ok and type(decoded) == "table" and decoded.files or nil
+  if type(files) ~= "table" then
+    return persisted_files, persisted_set
+  end
+
+  for _, name in ipairs(files) do
+    if #persisted_files >= max_session_files then
+      break
+    end
+    add_file(persisted_files, persisted_set, name, true)
+  end
+
+  return persisted_files, persisted_set
+end
+
+local function save_persisted()
+  if not persist_dirty then
+    return
+  end
+
+  local path = store_path()
+  if not path then
+    return
+  end
+
+  local previous = load_persisted()
+  local files = {}
+  local seen = {}
+  for _, name in ipairs(session_files) do
+    if #files >= max_session_files then
+      break
+    end
+    add_file(files, seen, name, true)
+  end
+  for _, name in ipairs(previous) do
+    if #files >= max_session_files then
+      break
+    end
+    add_file(files, seen, name, true)
+  end
+
+  local dir = vim.fs.dirname(path)
+  if dir and dir ~= "" then
+    vim.fn.mkdir(dir, "p")
+  end
+
+  local ok_write, write_result =
+    pcall(vim.fn.writefile, { vim.json.encode({ version = 1, files = files }) }, path)
+  if not ok_write or write_result ~= 0 then
+    return
+  end
+
+  persisted_files = files
+  persisted_set = seen
+  persist_dirty = false
+end
+
+local function session_priority_files()
+  local previous = load_persisted()
+  local files = {}
+  local seen = {}
+
+  for _, name in ipairs(session_files) do
+    add_file(files, seen, name, false)
+  end
+  for _, name in ipairs(previous) do
+    add_file(files, seen, name, true)
+  end
+
+  return files
+end
 
 vim.api.nvim_create_autocmd("BufEnter", {
   group = group,
@@ -46,7 +168,13 @@ vim.api.nvim_create_autocmd("BufEnter", {
       session_set[dropped] = nil
     end
     dirty = true
+    persist_dirty = true
   end,
+})
+
+vim.api.nvim_create_autocmd("VimLeavePre", {
+  group = group,
+  callback = save_persisted,
 })
 
 function M.merge(session, oldfiles, exists_fn, cap)
@@ -85,7 +213,7 @@ function M.get()
     return cache, cache_set
   end
 
-  cache, cache_set = M.merge(session_files, vim.v.oldfiles, function(f)
+  cache, cache_set = M.merge(session_priority_files(), vim.v.oldfiles, function(f)
     return uv.fs_stat(f) ~= nil
   end)
   dirty = false

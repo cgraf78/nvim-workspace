@@ -129,3 +129,46 @@ result=$(_nvim_lua "
 ")
 expected="$(printf '200\ntrue\nnil')"
 _assert_eq "get: session MRU is bounded for large buffer sets" "$expected" "$result"
+
+persist_tmp=$(_tmpdir)
+persist_a=$persist_tmp/a.lua
+persist_b=$persist_tmp/b.lua
+persist_store=$persist_tmp/recent.json
+printf 'print("a")\n' >"$persist_a"
+printf 'print("b")\n' >"$persist_b"
+
+NVIM_WORKSPACE_RECENT_FILE="$persist_store" _nvim_lua "
+  local recent = require('nvim_workspace.core.recent')
+  vim.cmd('edit ' .. vim.fn.fnameescape('$persist_a'))
+  vim.cmd('edit ' .. vim.fn.fnameescape('$persist_b'))
+  vim.cmd('bdelete ' .. vim.fn.fnameescape('$persist_b'))
+" >/dev/null
+
+result=$(NVIM_WORKSPACE_RECENT_FILE="$persist_store" _nvim_lua "
+  local recent = require('nvim_workspace.core.recent')
+  vim.v.oldfiles = {'$persist_a'}
+  local results, seen = recent.get()
+  print(tostring(seen['$persist_b']))
+")
+_assert_eq "get: plugin recent keeps deleted buffers across sessions" "true" "$result"
+
+missing_persist=$persist_tmp/missing.lua
+printf '%s\n' \
+  '{' \
+  '  "version": 1,' \
+  '  "files": [' \
+  "    \"$missing_persist\"," \
+  "    \"$persist_a\"" \
+  '  ]' \
+  '}' >"$persist_store"
+
+result=$(NVIM_WORKSPACE_RECENT_FILE="$persist_store" _nvim_lua "
+  local recent = require('nvim_workspace.core.recent')
+  vim.v.oldfiles = {}
+  local results, seen = recent.get()
+  print(#results)
+  print(tostring(seen['$missing_persist']))
+  print(tostring(seen['$persist_a']))
+")
+expected="$(printf '1\nnil\ntrue')"
+_assert_eq "get: plugin recent filters missing persisted files" "$expected" "$result"
