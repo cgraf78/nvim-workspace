@@ -205,8 +205,7 @@ end
 function M.relative_path(root, path)
   local canonical_root = M.canonical(root)
   local normalized_path = M.absolute_path(path)
-  local canonical_path =
-    strip_trailing_slash(uv.fs_realpath(normalized_path) or normalized_path)
+  local canonical_path = strip_trailing_slash(uv.fs_realpath(normalized_path) or normalized_path)
   if canonical_path == canonical_root then
     return ""
   end
@@ -322,6 +321,24 @@ local function marker_repo_root(start)
   return M.normalize(vim.fs.dirname(marker))
 end
 
+local function marker_root_ignored(root, config)
+  if not root then
+    return false
+  end
+
+  for _, ignored in ipairs(config.ignored_marker_roots or {}) do
+    if
+      type(ignored) == "string"
+      and ignored ~= ""
+      and M.contains(ignored, root)
+      and M.contains(root, ignored)
+    then
+      return true
+    end
+  end
+  return false
+end
+
 function M.find_home_repo_root()
   local root = call_detector(configured_workspace().home_workspace_detector, home, {
     kind = "home",
@@ -332,13 +349,27 @@ function M.find_home_repo_root()
   return nil
 end
 
--- Detect a normal VCS workspace. Hosts can inject a faster or richer detector;
--- the built-in fallback intentionally knows only common VCS marker directories.
+-- Detect a normal VCS workspace. Cheap marker roots win by default so opening
+-- ordinary repositories does not block on host-specific probes. Hosts that need
+-- to override marker roots can set workspace.prefer_marker_roots=false; marker
+-- roots are still passed as context and remain the failure fallback.
 function M.find_vcs_root(start)
   local cwd = M.normalize(start or M.current_buffer_dir())
-  return call_detector(configured_workspace().repo_root_detector, cwd, {
+  local marker_root = marker_repo_root(cwd)
+  local config = configured_workspace()
+
+  if marker_root_ignored(marker_root, config) then
+    marker_root = nil
+  end
+
+  if config.prefer_marker_roots ~= false and marker_root then
+    return marker_root
+  end
+
+  return call_detector(config.repo_root_detector, cwd, {
     kind = "vcs",
-  }) or marker_repo_root(cwd)
+    marker_root = marker_root,
+  }) or marker_root
 end
 
 -- Detect the full user workspace root, including any host-configured

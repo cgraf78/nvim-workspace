@@ -213,6 +213,44 @@ expected="$(printf '%s\n%s\n%s' "$tmp/project" "$tmp/project" "$tmp/project")"
 _assert_eq "repo_root: generic marker fallback detects vcs roots" "$expected" "$result"
 
 result=$(_nvim_lua "
+  require('nvim_workspace').setup({
+    workspace = {
+      repo_root_detector = function()
+        error('marker roots should not call detector by default')
+      end,
+    },
+  })
+  local workspace = require('nvim_workspace.core.workspace')
+  print(workspace.find_vcs_root('$tmp/project/src/file.lua'))
+  print(workspace.find_repo_root('$tmp/project/src/file.lua'))
+  print(workspace.repo_root('$tmp/project/src/file.lua'))
+")
+expected="$(printf '%s\n%s\n%s' "$tmp/project" "$tmp/project" "$tmp/project")"
+_assert_eq "repo_root: marker roots avoid configured detectors by default" \
+  "$expected" "$result"
+
+result=$(_nvim_lua "
+  require('nvim_workspace').setup({
+    workspace = {
+      ignored_marker_roots = { '$tmp/project' },
+      repo_root_detector = function(start, opts)
+        print('detector=' .. start)
+        print('marker=' .. tostring(opts and opts.marker_root))
+        return nil
+      end,
+    },
+  })
+  local workspace = require('nvim_workspace.core.workspace')
+  print(tostring(workspace.find_vcs_root('$tmp/project/src/file.lua')))
+  print(tostring(workspace.find_repo_root('$tmp/project/src/file.lua')))
+  print(workspace.repo_root('$tmp/project/src/file.lua'))
+")
+expected="$(printf 'detector=%s\nmarker=nil\nnil\ndetector=%s\nmarker=nil\nnil\ndetector=%s\nmarker=nil\n%s' \
+  "$tmp/project/src" "$tmp/project/src" "$tmp/project/src" "$tmp/project/src")"
+_assert_eq "repo_root: configured ignored marker roots fall through to detectors" \
+  "$expected" "$result"
+
+result=$(_nvim_lua "
   local workspace = require('nvim_workspace.core.workspace')
   local path = '$tmp/missing-dir'
   print(tostring(workspace.find_repo_root(path)))
@@ -224,9 +262,11 @@ _assert_eq "repo_root: missing cwd falls back without error" "$expected" "$resul
 result=$(_nvim_lua "
   require('nvim_workspace').setup({
     workspace = {
+      prefer_marker_roots = false,
       repo_root_detector = function(start, opts)
         print('detector=' .. start)
         print('kind=' .. tostring(opts and opts.kind))
+        print('marker=' .. tostring(opts and opts.marker_root))
         return '$project_real'
       end,
     },
@@ -235,16 +275,19 @@ result=$(_nvim_lua "
   print(workspace.find_vcs_root('$tmp/outside/target.lua'))
   print(workspace.find_repo_root('$tmp/outside/target.lua'))
   print(workspace.repo_root('$tmp/outside/target.lua'))
+  print(workspace.find_vcs_root('$tmp/project/src/file.lua'))
 ")
-expected="$(printf 'detector=%s\nkind=vcs\n%s\ndetector=%s\nkind=vcs\n%s\ndetector=%s\nkind=vcs\n%s' \
+expected="$(printf 'detector=%s\nkind=vcs\nmarker=nil\n%s\ndetector=%s\nkind=vcs\nmarker=nil\n%s\ndetector=%s\nkind=vcs\nmarker=nil\n%s\ndetector=%s\nkind=vcs\nmarker=%s\n%s' \
   "$tmp/outside" "$project_real" \
   "$tmp/outside" "$project_real" \
-  "$tmp/outside" "$project_real")"
+  "$tmp/outside" "$project_real" \
+  "$tmp/project/src" "$tmp/project" "$project_real")"
 _assert_eq "repo_root: configured detector owns host-specific root probes" "$expected" "$result"
 
 result=$(_nvim_lua "
   require('nvim_workspace').setup({
     workspace = {
+      prefer_marker_roots = false,
       repo_root_detector = function()
         error('broken detector')
       end,
