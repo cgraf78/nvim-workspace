@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   shell:
-    uses: cgraf78/actions/.github/workflows/shell-ci.yml@main # zizmor: ignore[unpinned-uses]
+    uses: cgraf78/actions/.github/workflows/shell-ci.yml@7d88c3afa6e51a83e9cfefb0c12f503155e17952
     with:
       profiles: base,lua,neovim,python
       test-command: tests/run
