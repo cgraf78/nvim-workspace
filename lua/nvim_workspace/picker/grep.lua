@@ -17,6 +17,10 @@ local uv = require("nvim_workspace.core.uv")
 
 M.sources = {}
 
+local function line_key(line)
+  return line:match("^(.-:%d+:)") or line
+end
+
 function M.dedup_lines(lines)
   local results = {}
   local seen = {}
@@ -24,7 +28,7 @@ function M.dedup_lines(lines)
     if line ~= "" then
       -- Treat path+line as the identity so recent-file and root searches do not
       -- show duplicate hits while still preserving distinct backend locations.
-      local key = line:match("^(.-:%d+:)") or line
+      local key = line_key(line)
       if not seen[key] then
         seen[key] = true
         results[#results + 1] = line
@@ -36,6 +40,67 @@ end
 
 local recent_files = require("nvim_workspace.core.recent")
 local scope = require("nvim_workspace.picker.scope")
+local root_result_limit = 200
+
+function M.run_root_rg(cmd, callback)
+  local lines = {}
+  local seen = {}
+  local pending = ""
+  local capped = false
+  local proc
+
+  local function stop_at_cap()
+    capped = true
+    pending = ""
+    local function stop()
+      if proc then
+        pcall(proc.kill, proc, 15)
+      end
+    end
+    if proc then
+      stop()
+    else
+      vim.schedule(stop)
+    end
+  end
+
+  local function on_stdout(err, data)
+    if err or not data or capped then
+      return
+    end
+
+    pending = pending .. data
+    while true do
+      local newline = pending:find("\n", 1, true)
+      if not newline then
+        return
+      end
+      local line = pending:sub(1, newline - 1)
+      pending = pending:sub(newline + 1)
+      local key = line ~= "" and line_key(line) or nil
+      if key and not seen[key] then
+        seen[key] = true
+        lines[#lines + 1] = line
+        if #lines == root_result_limit then
+          stop_at_cap()
+          return
+        end
+      end
+    end
+  end
+
+  proc = vim.system(cmd, { text = true, stdout = on_stdout }, function(result)
+    local key = pending ~= "" and line_key(pending) or nil
+    if not capped and key and not seen[key] and #lines < root_result_limit then
+      lines[#lines + 1] = pending
+    end
+    pending = ""
+    vim.schedule(function()
+      callback(lines, result)
+    end)
+  end)
+  return proc
+end
 
 --- Register a search source. The source function receives (prompt, done, root,
 --- ctx), where done(lines) completes the source with vimgrep-format lines.
@@ -307,30 +372,16 @@ function M.find(opts)
                 local cmd2 = { unpack(rg_root_prefix) }
                 cmd2[#cmd2 + 1] = prompt
                 cmd2[#cmd2 + 1] = root
-                local proc2 = vim.system(cmd2, { text = true }, function(result)
-                  local stdout = result.stdout or ""
-                  vim.schedule(function()
-                    if
-                      cleaned
-                      or my_gen ~= query_gen
-                      or not vim.api.nvim_buf_is_valid(prompt_bufnr)
-                    then
-                      return
-                    end
-                    local parsed = {}
-                    if stdout ~= "" then
-                      local count = 0
-                      for line in stdout:gmatch("[^\n]+") do
-                        parsed[#parsed + 1] = line
-                        count = count + 1
-                        if count >= 200 then
-                          break
-                        end
-                      end
-                    end
-                    source_done(parsed)
-                    ops:finish("root-rg", ("Local content: %d matches"):format(#parsed))
-                  end)
+                local proc2 = M.run_root_rg(cmd2, function(parsed, _result)
+                  if
+                    cleaned
+                    or my_gen ~= query_gen
+                    or not vim.api.nvim_buf_is_valid(prompt_bufnr)
+                  then
+                    return
+                  end
+                  source_done(parsed)
+                  ops:finish("root-rg", ("Local content: %d matches"):format(#parsed))
                 end)
                 scope.add_active_handle(active_procs, proc2)
               end
