@@ -444,6 +444,69 @@ result=$(_nvim_lua '
 expected="$(printf '0\n2\ntrue\nExtension\ntrue\nIndex search')"
 _assert_eq "file sources: accumulate with display names" "$expected" "$result"
 
+result=$(_nvim_lua '
+  package.loaded["nvim_workspace.core.workspace"] = {
+    normalize = function(path)
+      return path
+    end,
+    default_root = function()
+      return "/home/me"
+    end,
+  }
+  package.loaded["nvim_workspace.picker.scope"] = {}
+  package.loaded["nvim_workspace.picker.files"] = nil
+  local calls = {}
+  vim.system = function(cmd, opts, callback)
+    calls[#calls + 1] = { cmd = cmd, opts = opts, callback = callback }
+    return { kill = function() end }
+  end
+  local files = require("nvim_workspace.picker.files")
+  local callback = function() end
+  files.run_fd({ "fd", "query" }, "/home/me", callback)
+  files.run_fd({ "fd", "query" }, "/home/me/project", callback)
+  print(#calls)
+  print(calls[1].cmd[1])
+  print(calls[1].opts.text)
+  print(calls[1].opts.timeout)
+  print(tostring(calls[2].opts.timeout))
+  print(calls[1].callback == callback)
+')
+expected="$(printf '2\nfd\ntrue\n1000\nnil\ntrue')"
+_assert_eq "fd runtime: HOME traversal is bounded without constraining explicit roots" \
+  "$expected" "$result"
+
+cat >"$tmp/slow-fd" <<'EOF'
+#!/usr/bin/env sh
+printf '%s\n' "$$" >"${FD_PID_FILE:?}"
+exec sleep 5
+EOF
+chmod +x "$tmp/slow-fd"
+if [[ "$(_nvim_lua 'print(type(vim.system))')" == "function" ]]; then
+  result=$(FD_PID_FILE="$tmp/fd.pid" _nvim_lua "
+    local files = require('nvim_workspace.picker.files')
+    local result
+    files.run_fd({ '$tmp/slow-fd' }, vim.env.HOME, function(completed)
+      result = completed
+    end)
+    local ready = vim.wait(3000, function()
+      return result ~= nil
+    end)
+    print(ready)
+    print(result.code)
+  ")
+  expected="$(printf 'true\n124')"
+  _assert_eq "fd runtime: HOME timeout terminates and completes the backend" \
+    "$expected" "$result"
+  fd_pid=$(cat "$tmp/fd.pid")
+  if kill -0 "$fd_pid" 2>/dev/null; then
+    _fail "fd runtime: timed-out producer was not reaped"
+  else
+    _pass "fd runtime: timed-out producer is reaped"
+  fi
+else
+  echo "skip: fd runtime timeout integration requires Neovim 0.10+"
+fi
+
 echo ""
 echo "=== grep picker helpers ==="
 

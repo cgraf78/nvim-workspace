@@ -45,8 +45,21 @@ function M.merge_results(recent, recent_set, extra)
 end
 
 local fd_cmd
+local default_root_timeout_ms = 1000
 local recent_files = require("nvim_workspace.core.recent")
 local scope = require("nvim_workspace.picker.scope")
+local workspace = require("nvim_workspace.core.workspace")
+
+function M.run_fd(args, root, callback)
+  local system_opts = { text = true }
+  if workspace.normalize(root) == workspace.default_root() then
+    -- HOME can contain symlinked mounts that make a no-match --follow walk
+    -- effectively unbounded. Preserve alias discovery, but do not let one
+    -- background query consume I/O long after it stopped being useful.
+    system_opts.timeout = default_root_timeout_ms
+  end
+  return vim.system(args, system_opts, callback)
+end
 
 --- Register a file picker source. The source function receives
 --- (prompt, done, root, ctx), where done(paths) completes the source with a
@@ -267,7 +280,7 @@ function M.find(opts)
                 vim.list_extend(fd_args, scope.vcs_exclude_args())
                 vim.list_extend(fd_args, fd_query_args)
                 fd_args[#fd_args + 1] = root
-                local proc = vim.system(fd_args, { text = true }, function(result)
+                local proc = M.run_fd(fd_args, root, function(result)
                   local stdout = result.stdout or ""
                   vim.schedule(function()
                     if
