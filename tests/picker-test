@@ -567,3 +567,146 @@ result=$(_nvim_lua '
 ')
 expected="$(printf '0\n2\ntrue\nExtension\ntrue\nIndex search')"
 _assert_eq "grep sources: accumulate with display names" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local killed = 0
+  local system_opts
+  vim.system = function(_, opts, on_exit)
+    system_opts = opts
+    local handle = {
+      kill = function(_, signal)
+        killed = signal
+      end,
+    }
+    vim.schedule(function()
+      local first = {}
+      for i = 1, 150 do
+        first[#first + 1] = ("file.lua:%d:1:first"):format(i)
+      end
+      opts.stdout(nil, table.concat(first, "\n") .. "\nfile.lua:151")
+      local second = { ":1:second", "file.lua:151:9:duplicate" }
+      for i = 152, 260 do
+        second[#second + 1] = ("file.lua:%d:1:second"):format(i)
+      end
+      opts.stdout(nil, table.concat(second, "\n") .. "\n")
+      opts.stdout(nil, nil)
+      on_exit({ code = 143, signal = 15 })
+    end)
+    return handle
+  end
+
+  local grep = require("nvim_workspace.picker.grep")
+  local lines
+  local result_code
+  grep.run_root_rg({ "rg", "query" }, function(found, result)
+    lines = found
+    result_code = result.code
+  end)
+  local ready = vim.wait(1000, function()
+    return lines ~= nil
+  end)
+  print(ready)
+  print(type(system_opts.stdout))
+  print(tostring(system_opts.stdout == true))
+  print(#lines)
+  print(lines[1])
+  print(lines[#lines])
+  print(killed)
+  print(result_code)
+')
+expected="$(printf 'true\nfunction\nfalse\n200\nfile.lua:1:1:first\nfile.lua:200:1:second\n15\n143')"
+_assert_eq "root rg runtime: streams in order and terminates at the display cap" \
+  "$expected" "$result"
+
+cat >"$tmp/stream-rg" <<'EOF'
+#!/usr/bin/env sh
+case "$1" in
+  cap)
+    printf '%s\n' "$$" >"${RG_CAP_PID_FILE:?}"
+    i=1
+    while [ "$i" -le 400 ]; do
+      printf 'file.lua:%s:1:match\n' "$i"
+      i=$((i + 1))
+    done
+    exec sleep 5
+    ;;
+  first)
+    printf '%s\n' "$$" >"${RG_CANCEL_PID_FILE:?}"
+    printf '%s\n' 'old.lua:1:1:old'
+    exec sleep 5
+    ;;
+  second)
+    printf '%s\n' 'new.lua:1:1:new'
+    ;;
+esac
+EOF
+chmod +x "$tmp/stream-rg"
+
+if [[ "$(_nvim_lua 'print(type(vim.system))')" == "function" ]]; then
+  result=$(RG_CAP_PID_FILE="$tmp/cap.pid" _nvim_lua "
+  local grep = require('nvim_workspace.picker.grep')
+  local lines
+  grep.run_root_rg({ '$tmp/stream-rg', 'cap' }, function(found)
+    lines = found
+  end)
+  local ready = vim.wait(2000, function()
+    return lines ~= nil
+  end)
+  print(ready)
+  print(#lines)
+  print(lines[1])
+  print(lines[#lines])
+")
+  expected="$(printf 'true\n200\nfile.lua:1:1:match\nfile.lua:200:1:match')"
+  _assert_eq "root rg runtime: real capped producer exits with ordered bounded output" \
+    "$expected" "$result"
+  cap_pid=$(cat "$tmp/cap.pid")
+  if kill -0 "$cap_pid" 2>/dev/null; then
+    _fail "root rg runtime: capped producer was not reaped"
+  else
+    _pass "root rg runtime: capped producer is reaped"
+  fi
+
+  result=$(RG_CANCEL_PID_FILE="$tmp/cancel.pid" _nvim_lua "
+  local grep = require('nvim_workspace.picker.grep')
+  local scope = require('nvim_workspace.picker.scope')
+  local generation = 1
+  local visible = {}
+
+  local function start(mode)
+    local my_generation = generation
+    return grep.run_root_rg({ '$tmp/stream-rg', mode }, function(lines)
+      if my_generation == generation then
+        visible = lines
+      end
+    end)
+  end
+
+  local first = start('first')
+  local started = vim.wait(1000, function()
+    return vim.uv.fs_stat('$tmp/cancel.pid') ~= nil
+  end)
+  generation = generation + 1
+  scope.cancel_handle(first)
+  start('second')
+  local ready = vim.wait(2000, function()
+    return visible[1] == 'new.lua:1:1:new'
+  end)
+  vim.wait(100)
+  print(started)
+  print(ready)
+  print(#visible)
+  print(visible[1])
+")
+  expected="$(printf 'true\ntrue\n1\nnew.lua:1:1:new')"
+  _assert_eq "root rg runtime: cancellation and reopen discard stale output" \
+    "$expected" "$result"
+  cancel_pid=$(cat "$tmp/cancel.pid")
+  if kill -0 "$cancel_pid" 2>/dev/null; then
+    _fail "root rg runtime: canceled producer was not reaped"
+  else
+    _pass "root rg runtime: canceled producer is reaped"
+  fi
+else
+  echo "skip: root rg runtime integration requires Neovim 0.10+"
+fi
