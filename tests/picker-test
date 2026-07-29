@@ -249,14 +249,14 @@ result=$(_nvim_lua '
     end,
   }
   local mapped = {}
-  scope.attach_picker_mappings(0, function(mode, lhs)
-    mapped[mode .. lhs] = true
+  scope.attach_picker_mappings(0, function(mode, lhs, rhs)
+    mapped[mode .. lhs] = rhs or true
   end, { open = function() end })
-  print(tostring(mapped["i<C-s>"]))
-  print(tostring(mapped["ns"]))
-  print(tostring(mapped["i<C-r>"]))
-  print(tostring(mapped["i<C-w>"]))
-  print(tostring(mapped["i<C-d>"]))
+  print(tostring(mapped["i<C-s>"] ~= nil))
+  print(tostring(mapped["ns"] ~= nil))
+  print(tostring(mapped["i<C-r>"] ~= nil))
+  print(tostring(mapped["i<C-w>"] ~= nil))
+  print(tostring(mapped["i<C-d>"] ~= nil))
   print(tostring(mapped["i<C-l>"]))
   print(tostring(mapped["n<C-l>"]))
 ')
@@ -333,6 +333,71 @@ echo ""
 echo "=== files picker helpers ==="
 
 result=$(_nvim_lua '
+  local configured_opts
+  local callbacks = {}
+  local previewed = {}
+  local teardowns = 0
+  local configured = {
+    preview = function(_, entry)
+      previewed[#previewed + 1] = entry and entry.value or "nil"
+    end,
+    title = function() return "Configured preview" end,
+    teardown = function() teardowns = teardowns + 1 end,
+  }
+  package.loaded["telescope.config"] = {
+    values = {
+      file_previewer = function(opts)
+        configured_opts = opts
+        return configured
+      end,
+    },
+  }
+  package.loaded["nvim_workspace.picker.files"] = nil
+  local uv = require("nvim_workspace.core.uv")
+  local real_fs_stat = uv.fs_stat
+  uv.fs_stat = function(path, callback)
+    callbacks[path] = callback
+  end
+  local previewer = require("nvim_workspace.picker.files").file_previewer()
+  local preview_buf = vim.api.nvim_create_buf(false, true)
+  local preview_win = vim.api.nvim_open_win(preview_buf, false, {
+    relative = "editor", row = 1, col = 1, width = 20, height = 4,
+  })
+  local status = { layout = { preview = { winid = preview_win } } }
+  previewer:preview({ value = "/indexed/first.lua" }, status)
+  previewer:preview({ value = "/indexed/latest.lua" }, status)
+  callbacks["/indexed/latest.lua"](nil, { type = "file" })
+  callbacks["/indexed/first.lua"](nil, { type = "file" })
+  vim.wait(100, function() return #previewed == 3 end)
+  previewer:preview({ value = "relative.lua", cwd = "/repo" }, status)
+  callbacks["/repo/relative.lua"](nil, { type = "file" })
+  vim.wait(100, function() return #previewed == 5 end)
+  previewer:preview({ value = "/indexed/closing.lua" }, status)
+  previewer:teardown()
+  callbacks["/indexed/closing.lua"](nil, { type = "file" })
+  vim.wait(20)
+  uv.fs_stat = real_fs_stat
+  print(previewer == configured)
+  print(type(configured_opts))
+  print(previewer:title())
+  print(table.concat(previewed, ","))
+  print(teardowns)
+  vim.api.nvim_win_close(preview_win, true)
+')
+expected="$(printf 'true\ntable\nConfigured preview\nnil,nil,/indexed/latest.lua,nil,relative.lua,nil\n1')"
+_assert_eq "file picker preview: preserves configured previewer behind async stale guard" \
+  "$expected" "$result"
+
+result=$(_nvim_lua '
+  package.loaded["telescope.config"] = {
+    values = { file_previewer = function() return false end },
+  }
+  package.loaded["nvim_workspace.picker.files"] = nil
+  print(tostring(require("nvim_workspace.picker.files").file_previewer()))
+')
+_assert_eq "file picker preview: preserves disabled preview configuration" "false" "$result"
+
+result=$(_nvim_lua '
   local probes = 0
   package.loaded["nvim_workspace.core.workspace"] = {
     normalize = function(path)
@@ -397,17 +462,21 @@ result=$(_nvim_lua '
 _assert_eq "merge_results: works with empty recent" "a,b" "$result"
 
 result=$(_nvim_lua '
+  local visible_calls = 0
+  local absolute_calls = 0
   package.loaded["nvim_workspace.core.workspace"] = {
     normalize = function(path)
       return path
     end,
     visible_path = function(root, path)
+      visible_calls = visible_calls + 1
       if path:sub(1, #root + 1) == root .. "/" then
         return path
       end
       return nil
     end,
     absolute_path = function(path)
+      absolute_calls = absolute_calls + 1
       return path
     end,
   }
@@ -419,12 +488,16 @@ result=$(_nvim_lua '
     "/home/me/src/new.lua",
     "/home/me/.git/config",
     "/other/outside.lua",
+    "/home/me/src/../safe.lua",
+    "/home/me/src/../../other/escape.lua",
     "",
   })
   print(added)
   print(table.concat(extra, ","))
+  print(visible_calls)
+  print(absolute_calls)
 ')
-expected="$(printf '1\n/home/me/old.lua,/home/me/src/new.lua')"
+expected="$(printf '2\n/home/me/old.lua,/home/me/src/new.lua,/home/me/src/../safe.lua\n3\n0')"
 _assert_eq "add_results: appends visible searchable results immediately" \
   "$expected" "$result"
 
@@ -670,6 +743,7 @@ if [[ "$(_nvim_lua 'print(type(vim.system))')" == "function" ]]; then
   result=$(RG_CANCEL_PID_FILE="$tmp/cancel.pid" _nvim_lua "
   local grep = require('nvim_workspace.picker.grep')
   local scope = require('nvim_workspace.picker.scope')
+  local uv = require('nvim_workspace.core.uv')
   local generation = 1
   local visible = {}
 
@@ -684,7 +758,7 @@ if [[ "$(_nvim_lua 'print(type(vim.system))')" == "function" ]]; then
 
   local first = start('first')
   local started = vim.wait(1000, function()
-    return vim.uv.fs_stat('$tmp/cancel.pid') ~= nil
+    return uv.fs_stat('$tmp/cancel.pid') ~= nil
   end)
   generation = generation + 1
   scope.cancel_handle(first)
