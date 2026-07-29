@@ -91,6 +91,58 @@ function M.resolve_root(opts)
   return scope.resolve_root(opts)
 end
 
+function M.file_previewer()
+  local conf = require("telescope.config").values
+  local previewer = conf.file_previewer({})
+  if not previewer or type(previewer.preview) ~= "function" then
+    return previewer
+  end
+
+  local preview = previewer.preview
+  local teardown = previewer.teardown
+  local request = 0
+  if type(teardown) == "function" then
+    previewer.teardown = function(self, ...)
+      request = request + 1
+      return teardown(self, ...)
+    end
+  end
+  previewer.preview = function(self, entry, status)
+    request = request + 1
+    local current_request = request
+    if not entry or type(entry.value) ~= "string" or entry.value == "" then
+      return preview(self, entry, status)
+    end
+
+    local path = entry.value
+    if path:sub(1, 1) ~= "/" and type(entry.cwd) == "string" then
+      path = entry.cwd .. "/" .. path
+    end
+
+    -- Clear an old selection immediately, then let libuv establish whether the
+    -- indexed path is materialized. Telescope retains full ownership of the
+    -- configured previewer, including custom hooks, titles, caching, and reads.
+    preview(self, nil, status)
+    local ok = pcall(uv.fs_stat, path, function(_, stat)
+      vim.schedule(function()
+        if current_request ~= request or not stat then
+          return
+        end
+        local layout = status and status.layout
+        local window = layout and layout.preview
+        if not (window and vim.api.nvim_win_is_valid(window.winid)) then
+          return
+        end
+        preview(self, entry, status)
+      end)
+    end)
+    if not ok then
+      return
+    end
+  end
+  return previewer
+end
+
 function M.find(opts)
   opts = opts or {}
   local pickers = require("telescope.pickers")
@@ -164,7 +216,7 @@ function M.find(opts)
     initial_mode = "insert",
     finder = make_finder(),
     sorter = conf.file_sorter({}),
-    previewer = conf.file_previewer({}),
+    previewer = M.file_previewer(),
     create_layout = scope.status_layout(status),
     attach_mappings = function(prompt_bufnr, map)
       vim.api.nvim_create_autocmd({ "BufDelete", "BufUnload", "BufWipeout" }, {

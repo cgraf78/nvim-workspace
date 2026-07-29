@@ -22,18 +22,56 @@ local path_query_regex_chars = [[\.^$*+?()[]{}|]]
 -- pasted prose on the cheap fallback path.
 local max_unordered_regex_terms = 5
 
-local function regex_escape(text)
-  return vim.fn.escape(text, path_query_regex_chars)
+local function clean_absolute_path(path)
+  if type(path) ~= "string" or path:sub(1, 1) ~= "/" or path:find("//", 1, true) then
+    return nil
+  end
+  for part in path:gmatch("[^/]+") do
+    if part == "." or part == ".." then
+      return nil
+    end
+  end
+  return path == "/" and path or (path:gsub("/+$", ""))
 end
 
-function M.is_searchable_path(path)
-  local normalized_path = workspace.absolute_path(path)
-  for part in normalized_path:gmatch("[^/]+") do
+local function normalized_absolute_path(path)
+  if type(path) ~= "string" or path:sub(1, 1) ~= "/" then
+    return nil
+  end
+  local parts = {}
+  for part in path:gmatch("[^/]+") do
+    if part == ".." then
+      if #parts > 0 then
+        parts[#parts] = nil
+      end
+    elseif part ~= "." then
+      parts[#parts + 1] = part
+    end
+  end
+  return "/" .. table.concat(parts, "/")
+end
+
+local function path_under_root(root, path)
+  return (root == "/" and path:sub(1, 1) == "/")
+    or path == root
+    or path:sub(1, #root + 1) == root .. "/"
+end
+
+local function is_searchable_absolute_path(path)
+  for part in path:gmatch("[^/]+") do
     if vcs_metadata_dirs[part] then
       return false
     end
   end
   return true
+end
+
+local function regex_escape(text)
+  return vim.fn.escape(text, path_query_regex_chars)
+end
+
+function M.is_searchable_path(path)
+  return is_searchable_absolute_path(workspace.absolute_path(path))
 end
 
 function M.is_large_search_root(root)
@@ -576,8 +614,20 @@ function M.add_paths(results, root, paths, seen)
   local added = 0
   local normalized_root = workspace.normalize(root)
   for i = 1, #paths do
-    local visible = paths[i] ~= "" and workspace.visible_path(normalized_root, paths[i]) or nil
-    if visible and M.is_searchable_path(visible) and not (seen and seen[visible]) then
+    local path = paths[i]
+    local absolute = path ~= "" and clean_absolute_path(path) or nil
+    -- Indexed backends normally return paths already under the visible root.
+    -- Keep that common case lexical so one slow filesystem cannot turn a
+    -- streamed batch into one synchronous stat/realpath probe per result.
+    local visible = absolute and path_under_root(normalized_root, absolute) and absolute or nil
+    if not visible and path ~= "" then
+      local mapped = workspace.visible_path(normalized_root, path)
+      local containment_path = normalized_absolute_path(mapped)
+      if containment_path and path_under_root(normalized_root, containment_path) then
+        visible = mapped
+      end
+    end
+    if visible and is_searchable_absolute_path(visible) and not (seen and seen[visible]) then
       results[#results + 1] = visible
       if seen then
         seen[visible] = true
