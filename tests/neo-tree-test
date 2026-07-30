@@ -263,3 +263,26 @@ result=$(_nvim_lua "
 ")
 expected="$tmp/home|$tmp/home/project/src/repo|prompt=$tmp/home/project/src/repo:Explorer root: |$tmp/home/prompted|ctrl_l=nil"
 _assert_eq "neo-tree: filesystem mappings mirror picker root controls" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local pending = {}
+  vim.defer_fn = function(callback, delay)
+    pending[#pending + 1] = { callback = callback, delay = delay }
+  end
+  package.loaded["nvim_workspace.neo_tree"] = nil
+  local paths = require("nvim_workspace.neo_tree")
+  paths.setup_follow_autocmd()
+
+  vim.api.nvim_exec_autocmds("BufEnter", { modeline = false })
+  vim.api.nvim_exec_autocmds("WinEnter", { modeline = false })
+  vim.api.nvim_exec_autocmds("BufEnter", { modeline = false })
+  print("pending=" .. #pending)
+  print("delay=" .. pending[1].delay)
+
+  pending[1].callback()
+  vim.api.nvim_exec_autocmds("WinEnter", { modeline = false })
+  print("rescheduled=" .. #pending)
+')
+expected="$(printf 'pending=1\ndelay=150\nrescheduled=2')"
+_assert_eq "neo-tree: repeated focus events keep one reveal callback pending" \
+  "$expected" "$result"
