@@ -312,6 +312,67 @@ _assert_eq "session: setup owns load, debounced save, and leave save autocmds" \
   "load|save|save" "$result"
 
 result=$(_nvim_lua '
+  local real_uv = require("nvim_workspace.core.uv")
+  local timers = {}
+  local starts = 0
+  local timeout
+  local repeat_interval
+  local saves = 0
+  package.loaded["nvim_workspace.core.uv"] = setmetatable({
+    new_timer = function()
+      local timer = { pending = false }
+      function timer:is_closing()
+        return false
+      end
+      function timer:stop()
+        self.pending = false
+      end
+      function timer:close() end
+      function timer:start(next_timeout, next_repeat, next_callback)
+        starts = starts + 1
+        timeout = next_timeout
+        repeat_interval = next_repeat
+        self.callback = next_callback
+        self.pending = true
+      end
+      timers[#timers + 1] = timer
+      return timer
+    end,
+  }, { __index = real_uv })
+  package.loaded["nvim_workspace.session"] = nil
+  package.loaded.persistence = {
+    load = function() end,
+    save = function()
+      saves = saves + 1
+    end,
+  }
+
+  local restore = require("nvim_workspace.session")
+  restore.setup({ save_debounce_ms = 500 })
+  for _ = 1, 4 do
+    vim.api.nvim_exec_autocmds("BufAdd", { modeline = false })
+    vim.api.nvim_exec_autocmds("BufDelete", { modeline = false })
+  end
+  local pending = vim.tbl_filter(function(timer)
+    return timer.pending
+  end, timers)
+  print("timers=" .. #timers)
+  print("starts=" .. starts)
+  print("pending=" .. #pending)
+  print("timeout=" .. timeout)
+  print("repeat=" .. repeat_interval)
+  vim.api.nvim_del_augroup_by_name("nvim_workspace_session")
+  pending[1].callback()
+  vim.wait(1000, function()
+    return saves == 1
+  end)
+  print("saves=" .. saves)
+')
+expected="$(printf 'timers=1\nstarts=8\npending=1\ntimeout=500\nrepeat=0\nsaves=1')"
+_assert_eq "session: buffer event bursts produce one pending save batch" \
+  "$expected" "$result"
+
+result=$(_nvim_lua '
   local restore = require("nvim_workspace.session")
   local loads = 0
   package.loaded.persistence = {
