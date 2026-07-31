@@ -128,10 +128,6 @@ function M.resolve_root(opts)
   return scope.resolve_root(opts)
 end
 
-function M.add_lines(results, root, lines, seen)
-  return scope.add_vimgrep_lines(results, root, lines, seen)
-end
-
 function M.find(opts)
   opts = opts or {}
   local pickers = require("telescope.pickers")
@@ -294,6 +290,11 @@ function M.find(opts)
               if n_sources == 0 then
                 return
               end
+              -- Root/path mapping is stable for the whole query. Reuse one
+              -- operation-scoped adder so extension sources can stream tiny
+              -- chunks without reintroducing a synchronous root probe for
+              -- every callback.
+              local add_lines = scope.vimgrep_adder(root)
               local refresh_scheduled = false
 
               local function refresh_results()
@@ -329,7 +330,7 @@ function M.find(opts)
                 if my_gen ~= query_gen then
                   return 0
                 end
-                local added = M.add_lines(results, root, lines, seen)
+                local added = add_lines(results, lines, seen)
                 if added > 0 then
                   schedule_refresh()
                 end
