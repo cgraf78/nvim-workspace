@@ -649,7 +649,21 @@ function M.vimgrep_path(line)
   return line:match("^(.-):%d+:%d+:") or line:match("^(.-):%d+:")
 end
 
-function M.visible_vimgrep_line(root, line)
+local function vimgrep_root(root)
+  if not root or root == "" then
+    return workspace.normalize(root), true
+  end
+  local absolute_root = workspace.absolute_path(root)
+  if path_under_root(workspace.default_root(), absolute_root) then
+    return workspace.normalize(root), true
+  end
+  -- Do not pre-normalize outside-HOME roots. The fallback below owns that
+  -- operation already, so doing it here would add a redundant synchronous
+  -- stat to every batch without making lexical mapping safe.
+  return root, false
+end
+
+local function visible_vimgrep_line(selected_root, line, allow_lexical)
   if type(line) ~= "string" then
     return nil
   end
@@ -665,37 +679,80 @@ function M.visible_vimgrep_line(root, line)
     return line
   end
 
-  local visible = workspace.visible_path(root, path)
+  -- Ripgrep and indexed sources normally return clean absolute paths beneath
+  -- the selected root. Keep that common case lexical: visible_path() must
+  -- normalize and may canonicalize through the filesystem, which turns a
+  -- streamed result batch into one synchronous probe per match.
+  local absolute = allow_lexical and clean_absolute_path(path) or nil
+  local visible = absolute and path_under_root(selected_root, absolute) and absolute or nil
+  if not visible then
+    -- Preserve the shared path policy for every ambiguous spelling. Relative
+    -- paths, dot segments, doubled slashes, canonical backend paths, and
+    -- outside-root paths still need HOME-alias and symlink-aware mapping.
+    visible = workspace.visible_path(selected_root, path)
+  end
   if not visible then
     return nil
   end
   return visible .. suffix
 end
 
-function M.add_vimgrep_lines(results, root, lines, seen)
-  if not lines then
-    return 0
-  end
+function M.visible_vimgrep_line(root, line)
+  local selected_root, allow_lexical = vimgrep_root(root)
+  return visible_vimgrep_line(selected_root, line, allow_lexical)
+end
 
-  local added = 0
-  for i = 1, #lines do
-    local line = lines[i]
-    if line ~= "" then
-      local visible_line = M.visible_vimgrep_line(root, line)
-      if visible_line then
-        local path = M.vimgrep_path(visible_line)
-        local key = visible_line:match("^(.-:%d+:)") or visible_line
-        if path and M.is_searchable_path(path) and not (seen and seen[key]) then
-          results[#results + 1] = visible_line
-          if seen then
-            seen[key] = true
+function M.vimgrep_adder(root)
+  local selected_root
+  local allow_lexical
+  local initialized = false
+  return function(results, lines, seen)
+    if not lines or #lines == 0 then
+      return 0
+    end
+
+    if not initialized then
+      selected_root, allow_lexical = vimgrep_root(root)
+      initialized = true
+    end
+
+    -- workspace.visible_path() already treats clean paths beneath HOME
+    -- lexically. Outside HOME it first checks canonical paths against visible
+    -- HOME aliases, so those roots must retain the shared mapper even when an
+    -- input happens to look clean.
+    local added = 0
+    for i = 1, #lines do
+      local line = lines[i]
+      if line ~= "" then
+        -- Root mapping belongs to the query operation, not an individual
+        -- streamed chunk. If profiling finds the same clean-path probes in
+        -- multiple consumers, move this context behind a shared workspace
+        -- operation. That future interface must retain the filesystem-aware
+        -- fallback above; a global lexical shortcut inside visible_path()
+        -- would otherwise risk changing alias and symlink rules.
+        local visible_line = visible_vimgrep_line(selected_root, line, allow_lexical)
+        if visible_line then
+          local path = M.vimgrep_path(visible_line)
+          local key = visible_line:match("^(.-:%d+:)") or visible_line
+          if path and is_searchable_absolute_path(path) and not (seen and seen[key]) then
+            results[#results + 1] = visible_line
+            if seen then
+              seen[key] = true
+            end
+            added = added + 1
           end
-          added = added + 1
         end
       end
     end
+    return added
   end
-  return added
+end
+
+function M.add_vimgrep_lines(results, root, lines, seen)
+  if not lines or #lines == 0 then
+    return 0
+  end
+  return M.vimgrep_adder(root)(results, lines, seen)
 end
 
 function M.prompt_for_root(default_root, callback)

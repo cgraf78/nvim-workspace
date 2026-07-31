@@ -84,6 +84,227 @@ _assert_eq "vimgrep policy: appends visible searchable lines with line dedup" \
   "$expected" "$result"
 
 result=$(_nvim_lua '
+  local normalize_calls = 0
+  local visible_calls = 0
+  local absolute_calls = 0
+  package.loaded["nvim_workspace.core.workspace"] = {
+    default_root = function()
+      return "/home/me"
+    end,
+    normalize = function(path)
+      normalize_calls = normalize_calls + 1
+      return path
+    end,
+    visible_path = function(_, path)
+      visible_calls = visible_calls + 1
+      return path
+    end,
+    absolute_path = function(path)
+      absolute_calls = absolute_calls + 1
+      return path
+    end,
+  }
+  package.loaded["nvim_workspace.picker.scope"] = nil
+  local scope = require("nvim_workspace.picker.scope")
+  local lines = {}
+  for i = 1, 200 do
+    lines[i] = ("/home/me/project/src/file-%03d.lua:%d:1:match"):format(i, i)
+  end
+  local results = {}
+  local added = scope.add_vimgrep_lines(results, "/home/me/project", lines, {})
+  print(added)
+  print(results[1])
+  print(results[#results])
+  print(normalize_calls)
+  print(visible_calls)
+  print(absolute_calls)
+')
+expected="$(printf '%s\n%s\n%s\n1\n0\n1' \
+  "200" \
+  "/home/me/project/src/file-001.lua:1:1:match" \
+  "/home/me/project/src/file-200.lua:200:1:match")"
+_assert_eq "vimgrep policy: clean batches avoid per-result filesystem mapping" \
+  "$expected" "$result"
+
+result=$(_nvim_lua '
+  local normalize_calls = 0
+  local visible_calls = 0
+  package.loaded["nvim_workspace.core.workspace"] = {
+    default_root = function()
+      return "/home/me"
+    end,
+    normalize = function(path)
+      normalize_calls = normalize_calls + 1
+      return path
+    end,
+    visible_path = function(_, path)
+      visible_calls = visible_calls + 1
+      return path
+    end,
+    absolute_path = function(path)
+      return path
+    end,
+  }
+  package.loaded["nvim_workspace.picker.scope"] = nil
+  local scope = require("nvim_workspace.picker.scope")
+  local add = scope.vimgrep_adder("/home/me/project")
+  local results = {}
+  local seen = {}
+  local added = 0
+  for i = 1, 200 do
+    added = added + add(results, {
+      ("/home/me/project/src/file-%03d.lua:%d:1:match"):format(i, i),
+    }, seen)
+  end
+  print(added)
+  print(#results)
+  print(normalize_calls)
+  print(visible_calls)
+')
+expected="$(printf '200\n200\n1\n0')"
+_assert_eq "vimgrep policy: streamed chunks reuse query root mapping" \
+  "$expected" "$result"
+
+result=$(_nvim_lua '
+  package.loaded["nvim_workspace.core.workspace"] = {
+    default_root = function()
+      error("empty batches must not resolve roots")
+    end,
+    normalize = function()
+      error("empty batches must not normalize roots")
+    end,
+    visible_path = function()
+      error("empty batches must not map paths")
+    end,
+    absolute_path = function()
+      error("empty batches must not expand roots")
+    end,
+  }
+  package.loaded["nvim_workspace.picker.scope"] = nil
+  local scope = require("nvim_workspace.picker.scope")
+  print(scope.add_vimgrep_lines({}, "/home/me/project", {}, {}))
+  local add = scope.vimgrep_adder("/home/me/project")
+  print(add({}, {}, {}))
+')
+expected="$(printf '0\n0')"
+_assert_eq "vimgrep policy: empty batches avoid root probes" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local fallback_paths = {}
+  package.loaded["nvim_workspace.core.workspace"] = {
+    default_root = function()
+      return "/visible"
+    end,
+    normalize = function()
+      return "/visible/root"
+    end,
+    visible_path = function(_, path)
+      fallback_paths[#fallback_paths + 1] = path
+      local mapped = {
+        ["src/relative.lua"] = "/visible/root/src/relative.lua",
+        ["/visible/root/src/./dot.lua"] = "/visible/root/src/dot.lua",
+        ["/visible/root/src/../up.lua"] = "/visible/root/up.lua",
+        ["/visible/root//src/double.lua"] = "/visible/root/src/double.lua",
+        ["/data/root/src/alias.lua"] = "/visible/root/src/alias.lua",
+      }
+      return mapped[path]
+    end,
+    absolute_path = function(path)
+      return path
+    end,
+  }
+  package.loaded["nvim_workspace.picker.scope"] = nil
+  local scope = require("nvim_workspace.picker.scope")
+  local results = {}
+  local added = scope.add_vimgrep_lines(results, "/visible/root", {
+    "/visible/root/src/clean.lua:1:2:clean",
+    "src/relative.lua:2:3:relative",
+    "/visible/root/src/./dot.lua:3:4:dot",
+    "/visible/root/src/../up.lua:4:5:up",
+    "/visible/root//src/double.lua:5:6:double",
+    "/data/root/src/alias.lua:6:7:alias",
+    "/outside/root/no.lua:7:8:outside",
+  }, {})
+  print(added)
+  print(table.concat(results, "\n"))
+  print("fallbacks=" .. table.concat(fallback_paths, ","))
+')
+expected="$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
+  "6" \
+  "/visible/root/src/clean.lua:1:2:clean" \
+  "/visible/root/src/relative.lua:2:3:relative" \
+  "/visible/root/src/dot.lua:3:4:dot" \
+  "/visible/root/up.lua:4:5:up" \
+  "/visible/root/src/double.lua:5:6:double" \
+  "/visible/root/src/alias.lua:6:7:alias" \
+  "fallbacks=src/relative.lua,/visible/root/src/./dot.lua,/visible/root/src/../up.lua,/visible/root//src/double.lua,/data/root/src/alias.lua,/outside/root/no.lua")"
+_assert_eq "vimgrep policy: ambiguous paths retain filesystem-aware mapping" \
+  "$expected" "$result"
+
+result=$(_nvim_lua '
+  local normalize_calls = 0
+  local visible_calls = 0
+  package.loaded["nvim_workspace.core.workspace"] = {
+    default_root = function()
+      return "/home/me"
+    end,
+    normalize = function(path)
+      normalize_calls = normalize_calls + 1
+      return path
+    end,
+    visible_path = function(_, path)
+      visible_calls = visible_calls + 1
+      package.loaded["nvim_workspace.core.workspace"].normalize("/mnt/project")
+      return path
+    end,
+    absolute_path = function(path)
+      return path
+    end,
+  }
+  package.loaded["nvim_workspace.picker.scope"] = nil
+  local scope = require("nvim_workspace.picker.scope")
+  local results = {}
+  local added = scope.add_vimgrep_lines(results, "/mnt/project", {
+    "/mnt/project/src/file.lua:8:9:match",
+    "/mnt/project/src/other.lua:10:11:other",
+  }, {})
+  print(added)
+  print(results[1])
+  print(results[2])
+  print(normalize_calls)
+  print(visible_calls)
+')
+expected="$(printf '%s\n%s\n%s\n2\n2' \
+  "2" \
+  "/mnt/project/src/file.lua:8:9:match" \
+  "/mnt/project/src/other.lua:10:11:other")"
+_assert_eq "vimgrep policy: roots outside HOME retain alias-aware mapping" \
+  "$expected" "$result"
+
+result=$(_nvim_lua '
+  package.loaded["nvim_workspace.core.workspace"] = {
+    default_root = function()
+      return "/home/me"
+    end,
+    normalize = function(root)
+      assert(root == nil)
+      return "/home/me"
+    end,
+    visible_path = function()
+      error("clean HOME path must not use fallback")
+    end,
+    absolute_path = function()
+      error("nil root must normalize through the existing default")
+    end,
+  }
+  package.loaded["nvim_workspace.picker.scope"] = nil
+  local scope = require("nvim_workspace.picker.scope")
+  print(scope.visible_vimgrep_line(nil, "/home/me/src/file.lua:12:13:match"))
+')
+_assert_eq "vimgrep policy: nil roots retain the HOME default" \
+  "/home/me/src/file.lua:12:13:match" "$result"
+
+result=$(_nvim_lua '
   local scope = require("nvim_workspace.picker.scope")
   print(table.concat(scope.path_query_terms("  foo   bar/baz  "), "|"))
   print(table.concat(scope.fd_query_args("foo bar"), "|"))
@@ -640,6 +861,157 @@ result=$(_nvim_lua '
 ')
 expected="$(printf '0\n2\ntrue\nExtension\ntrue\nIndex search')"
 _assert_eq "grep sources: accumulate with display names" "$expected" "$result"
+
+result=$(_nvim_lua '
+  local adder_calls = 0
+  local add_calls = 0
+  local compat_calls = 0
+  local attached_on_lines
+  local current = {
+    _get_prompt = function()
+      return "needle"
+    end,
+    refresh = function() end,
+  }
+  local status = {
+    close = function() end,
+    flush = function() end,
+  }
+  local ops = {
+    event = function() end,
+    finish = function() end,
+    reset = function() end,
+    start = function() end,
+  }
+  package.loaded["nvim_workspace.core.recent"] = {
+    get = function()
+      return {}
+    end,
+  }
+  package.loaded["nvim_workspace.core.uv"] = {
+    new_timer = function()
+      local closed = false
+      return {
+        close = function()
+          closed = true
+        end,
+        is_closing = function()
+          return closed
+        end,
+        start = function(_, _, _, callback)
+          callback()
+        end,
+        stop = function() end,
+      }
+    end,
+  }
+  package.loaded["nvim_workspace.picker.scope"] = {
+    add_active_handle = function() end,
+    add_vimgrep_lines = function(results, _, lines)
+      compat_calls = compat_calls + 1
+      vim.list_extend(results, lines)
+      return #lines
+    end,
+    attach_picker_mappings = function() end,
+    cancel_handle = function() end,
+    current_picker = function()
+      return current
+    end,
+    filter_paths = function()
+      return {}, {}
+    end,
+    is_large_search_root = function()
+      return true
+    end,
+    operation_status = function()
+      return ops
+    end,
+    resolve_root = function()
+      return "/home/me", "/home/me"
+    end,
+    source_name = function(source)
+      return source.name
+    end,
+    status = function()
+      return status
+    end,
+    status_layout = function() end,
+    title = function()
+      return "Search"
+    end,
+    vimgrep_adder = function()
+      adder_calls = adder_calls + 1
+      return function(results, lines)
+        add_calls = add_calls + 1
+        vim.list_extend(results, lines)
+        return #lines
+      end
+    end,
+  }
+  package.loaded["telescope.config"] = {
+    values = {
+      grep_previewer = function()
+        return {}
+      end,
+    },
+  }
+  package.loaded["telescope.finders"] = {
+    new_table = function(spec)
+      return spec
+    end,
+  }
+  package.loaded["telescope.make_entry"] = {
+    gen_from_vimgrep = function()
+      return function(line)
+        return line
+      end
+    end,
+  }
+  package.loaded["telescope.sorters"] = {
+    empty = function()
+      return {}
+    end,
+  }
+  local prompt_bufnr = vim.api.nvim_create_buf(false, true)
+  package.loaded["telescope.pickers"] = {
+    new = function(_, spec)
+      return {
+        find = function()
+          spec.attach_mappings(prompt_bufnr, function() end)
+        end,
+      }
+    end,
+  }
+  local real_buf_attach = vim.api.nvim_buf_attach
+  vim.api.nvim_buf_attach = function(_, _, opts)
+    attached_on_lines = opts.on_lines
+    return true
+  end
+  package.loaded["nvim_workspace.picker.grep"] = nil
+  local grep = require("nvim_workspace.picker.grep")
+  grep.sources = {
+    {
+      name = "Stream",
+      run = function(_, done)
+        done({ "/home/me/one.lua:1:1:one" }, { partial = true })
+        done({ "/home/me/two.lua:2:1:two" })
+      end,
+    },
+  }
+  grep.find()
+  attached_on_lines()
+  local completed = vim.wait(1000, function()
+    return add_calls == 2 or compat_calls == 2
+  end)
+  vim.api.nvim_buf_attach = real_buf_attach
+  vim.api.nvim_buf_delete(prompt_bufnr, { force = true })
+  print(completed)
+  print(adder_calls)
+  print(add_calls)
+  print(compat_calls)
+')
+expected="$(printf 'true\n1\n2\n0')"
+_assert_eq "grep sources: streamed chunks reuse one query mapper" "$expected" "$result"
 
 result=$(_nvim_lua '
   local killed = 0
