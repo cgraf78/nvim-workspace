@@ -1,0 +1,13 @@
+# type<TAB>repository-relative path
+# `fixture` records are discovered but intentionally excluded from ShellCheck.
+program	tests/api-test
+program	tests/helpers.sh
+program	tests/lazygit-test
+program	tests/navigation-test
+program	tests/neo-tree-test
+program	tests/picker-test
+program	tests/recent-test
+program	tests/run
+program	tests/session-test
+program	tests/shell-test
+program	tests/workspace-test
