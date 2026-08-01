@@ -151,11 +151,13 @@ result=$(_nvim_lua "
   print(tostring(policy.enable_git_status))
   print(tostring(policy.filtered_items.hide_dotfiles))
   print(tostring(policy.filtered_items.hide_gitignored))
+  print(tostring(policy.filtered_items.hide_ignored))
   print(#policy.filtered_items.ignore_files)
   print(table.concat(policy.filtered_items.ignore_files, ','))
 ")
-expected="$(printf 'false\ntrue\ntrue\n1\n.neotreeignore')"
-_assert_eq "neo-tree: home root uses tree-specific ignore file" "$expected" "$result"
+expected="$(printf 'false\ntrue\nfalse\ntrue\n1\n.neotreeignore')"
+_assert_eq "neo-tree: home root skips gitignore scan and uses tree-specific ignore file" \
+  "$expected" "$result"
 
 result=$(_nvim_lua "
   vim.env.HOME = '$tmp/home'
@@ -168,10 +170,11 @@ result=$(_nvim_lua "
   print(tostring(policy.enable_git_status))
   print(tostring(policy.filtered_items.hide_dotfiles))
   print(tostring(policy.filtered_items.hide_gitignored))
+  print(tostring(policy.filtered_items.hide_ignored))
   print(#policy.filtered_items.ignore_files)
 ")
-expected="$(printf 'false\ntrue\ntrue\n2')"
-_assert_eq "neo-tree: home subdirs without repos stay quiet browser roots" \
+expected="$(printf 'false\ntrue\nfalse\ntrue\n2')"
+_assert_eq "neo-tree: home subdirs without repos skip gitignore scans" \
   "$expected" "$result"
 
 mkdir -p "$tmp/home/project/.git"

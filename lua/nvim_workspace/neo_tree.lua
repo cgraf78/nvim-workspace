@@ -65,6 +65,9 @@ end
 function M.filesystem_policy(root)
   local large = in_large_root(root)
   local home_browser_root = is_home_browser_root(root)
+  -- Broad HOME views use ignore files without blocking first render on a
+  -- repo-wide Git ignored-path query.
+  local git_aware = not large and not home_browser_root
   local hide_ignored = home_browser_root or not large
   local ws = workspace()
   local is_default_root = type(root) == "string"
@@ -79,10 +82,10 @@ function M.filesystem_policy(root)
   end
 
   return {
-    enable_git_status = not large and not home_browser_root,
+    enable_git_status = git_aware,
     filtered_items = {
       hide_dotfiles = true,
-      hide_gitignored = hide_ignored,
+      hide_gitignored = git_aware,
       hide_ignored = hide_ignored,
       ignore_files = ignore_files,
     },
