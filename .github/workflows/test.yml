@@ -13,8 +13,9 @@ permissions:
 
 jobs:
   shell:
-    uses: cgraf78/actions/.github/workflows/shell-ci.yml@d0648a98a1585710edb5d1393af84e48025bcaa7
+    uses: cgraf78/actions/.github/workflows/shell-ci.yml@f9a9074b2d43fb3812067477d29307ef1e84e70e
     with:
       matrix-set: full
       profiles: base,lua,neovim,python
+      shellcheck-inventory-path: .github/shellcheck-files.txt
       test-command: tests/run
