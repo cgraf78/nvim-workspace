@@ -581,13 +581,24 @@ function M.unordered_path_regex(prompt)
   return table.concat(alternatives, "|")
 end
 
-function M.vcs_exclude_args()
-  local args = {}
+local function visibility_args(kind, flag)
+  local args = { "--hidden", "--no-ignore-vcs" }
   for _, name in ipairs(vcs_metadata_dir_names) do
-    args[#args + 1] = "--exclude"
-    args[#args + 1] = name
+    args[#args + 1] = flag
+    args[#args + 1] = kind == "glob" and "!**/" .. name .. "/**" or name
   end
   return args
+end
+
+-- Git ignore rules describe tracking policy, while .ignore describes search
+-- noise. Keep hidden and intentionally untracked config searchable without
+-- admitting repository metadata into picker results.
+function M.fd_visibility_args()
+  return visibility_args("name", "--exclude")
+end
+
+function M.rg_visibility_args()
+  return visibility_args("glob", "--glob")
 end
 
 function M.filter_paths(paths, root)
