@@ -69,6 +69,9 @@ vim.keymap.set("n", "<C-S-f>", function()
 end)
 ```
 
+For a complete lazy.nvim installation specification, see
+[`examples/lazy.lua`](examples/lazy.lua).
+
 The plugin also registers:
 
 ```vim
@@ -235,6 +238,10 @@ Grep sources receive the same callback shape, but should return ripgrep
 for streaming chunks and must eventually call `done(results)` once. Returning a
 function or handle with `cancel()`/`kill()` lets the picker stop stale work when
 the prompt changes or closes.
+
+[`examples/file-source.lua`](examples/file-source.lua) is a tested, host-neutral
+implementation showing partial results, final completion, status reporting, and
+cancellation together.
 
 ## Tests
 

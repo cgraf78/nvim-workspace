@@ -3,6 +3,7 @@
 set -euo pipefail
 
 tests/api-test
+tests/examples-test
 tests/recent-test
 tests/workspace-test
 tests/picker-test
