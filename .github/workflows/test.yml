@@ -21,6 +21,10 @@ jobs:
     with:
       matrix-set: full
       profiles: base,lua,neovim,python
+      # Neovim supplies the Lua runtime these tests exercise in Termux. Avoid
+      # co-installing lua54 with Neovim's lua51 runtime: the live lua54 and
+      # lua51 packages currently both own the generic lua++.pc metadata file.
+      termux-profiles: base,neovim,python
       shellcheck-inventory-path: .github/shellcheck-files.txt
       test-command: tests/run
 
