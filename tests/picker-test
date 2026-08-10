@@ -814,19 +814,24 @@ fi
 echo ""
 echo "=== grep picker helpers ==="
 
-result=$(_nvim_lua "
-  local grep = require('nvim_workspace.picker.grep')
-  local args = grep.recent_rg_args(
-    { 'rg', '--vimgrep', '--fixed-strings' },
-    'search visibility:',
-    { '$PWD/tests/picker-test' }
-  )
-  local lines = vim.fn.systemlist(args)
-  print(vim.v.shell_error)
-  print(#lines > 0 and lines[1]:find('search visibility:', 1, true) ~= nil)
-")
-expected="$(printf '0\ntrue')"
-_assert_eq "recent rg: searches exact paths with the installed ripgrep CLI" "$expected" "$result"
+if command -v rg >/dev/null 2>&1; then
+  result=$(_nvim_lua "
+    local grep = require('nvim_workspace.picker.grep')
+    local args = grep.recent_rg_args(
+      { 'rg', '--vimgrep', '--fixed-strings' },
+      'search visibility:',
+      { '$PWD/tests/picker-test' }
+    )
+    local lines = vim.fn.systemlist(args)
+    print(vim.v.shell_error)
+    print(#lines > 0 and lines[1]:find('search visibility:', 1, true) ~= nil)
+  ")
+  expected="$(printf '0\ntrue')"
+  _assert_eq "recent rg: searches exact paths with the installed ripgrep CLI" \
+    "$expected" "$result"
+else
+  echo "skip: recent rg installed-CLI integration requires ripgrep"
+fi
 
 result=$(_nvim_lua '
   local grep = require("nvim_workspace.picker.grep")
@@ -847,30 +852,34 @@ result=$(_nvim_lua '
 expected="$(printf 'true\ntrue\nfalse\ntrue')"
 _assert_eq "recent rg: bounds exact paths to a portable argv budget" "$expected" "$result"
 
-mkdir -p "$tmp/recent-ignore"
-printf '%s\n' 'ignored.lua' >"$tmp/recent-ignore/.ignore"
-printf '%s\n' 'recent-policy-needle' >"$tmp/recent-ignore/ignored.lua"
-result=$(_nvim_lua "
-  local grep = require('nvim_workspace.picker.grep')
-  local args = grep.recent_rg_args(
-    { 'rg', '--vimgrep', '--fixed-strings', '--hidden', '--no-ignore-vcs' },
-    'recent-policy-needle',
-    { '$tmp/recent-ignore/ignored.lua' }
-  )
-  local exact = vim.fn.systemlist(args)
-  local discovered = vim.fn.systemlist({
-    'rg', '--files', '--hidden', '--no-ignore-vcs', '$tmp/recent-ignore'
-  })
-  local found_ignored = false
-  for _, path in ipairs(discovered) do
-    found_ignored = found_ignored or path:match('/ignored%.lua$') ~= nil
-  end
-  print(vim.v.shell_error)
-  print(#exact)
-  print(found_ignored)
-")
-expected="$(printf '0\n1\nfalse')"
-_assert_eq "recent policy: explicit files override discovery ignores" "$expected" "$result"
+if command -v rg >/dev/null 2>&1; then
+  mkdir -p "$tmp/recent-ignore"
+  printf '%s\n' 'ignored.lua' >"$tmp/recent-ignore/.ignore"
+  printf '%s\n' 'recent-policy-needle' >"$tmp/recent-ignore/ignored.lua"
+  result=$(_nvim_lua "
+    local grep = require('nvim_workspace.picker.grep')
+    local args = grep.recent_rg_args(
+      { 'rg', '--vimgrep', '--fixed-strings', '--hidden', '--no-ignore-vcs' },
+      'recent-policy-needle',
+      { '$tmp/recent-ignore/ignored.lua' }
+    )
+    local exact = vim.fn.systemlist(args)
+    local discovered = vim.fn.systemlist({
+      'rg', '--files', '--hidden', '--no-ignore-vcs', '$tmp/recent-ignore'
+    })
+    local found_ignored = false
+    for _, path in ipairs(discovered) do
+      found_ignored = found_ignored or path:match('/ignored%.lua$') ~= nil
+    end
+    print(vim.v.shell_error)
+    print(#exact)
+    print(found_ignored)
+  ")
+  expected="$(printf '0\n1\nfalse')"
+  _assert_eq "recent policy: explicit files override discovery ignores" "$expected" "$result"
+else
+  echo "skip: recent policy installed-CLI integration requires ripgrep"
+fi
 
 result=$(_nvim_lua '
   local grep = require("nvim_workspace.picker.grep")
