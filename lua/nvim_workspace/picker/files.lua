@@ -158,6 +158,8 @@ function M.find(opts)
     fd_cmd = vim.fn.executable("fd") == 1 and "fd" or "fdfind"
   end
 
+  -- Recent files represent explicit editor activity, so they remain available
+  -- even when discovery backends suppress their paths through .ignore.
   local recent, recent_set = scope.filter_paths(recent_files.get(), root)
   local entry_maker = make_entry.gen_from_file({})
 
@@ -323,13 +325,12 @@ function M.find(opts)
                   fd_cmd,
                   "--type",
                   "f",
-                  "--hidden",
                   "--follow",
                   "--full-path",
                   "--max-results",
                   "50",
                 }
-                vim.list_extend(fd_args, scope.vcs_exclude_args())
+                vim.list_extend(fd_args, scope.fd_visibility_args())
                 vim.list_extend(fd_args, fd_query_args)
                 fd_args[#fd_args + 1] = root
                 local proc = M.run_fd(fd_args, root, function(result)

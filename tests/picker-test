@@ -316,6 +316,17 @@ _assert_eq "path query policy: multi-word path searches are order independent" \
 
 result=$(_nvim_lua '
   local scope = require("nvim_workspace.picker.scope")
+  print(table.concat(scope.fd_visibility_args(), "|"))
+  print(table.concat(scope.rg_visibility_args(), "|"))
+')
+expected="$(printf '%s\n%s' \
+  '--hidden|--no-ignore-vcs|--exclude|.git|--exclude|.hg|--exclude|.jj|--exclude|.sl|--exclude|.svn' \
+  '--hidden|--no-ignore-vcs|--glob|!**/.git/**|--glob|!**/.hg/**|--glob|!**/.jj/**|--glob|!**/.sl/**|--glob|!**/.svn/**')"
+_assert_eq "search visibility: includes hidden and VCS-ignored paths but excludes metadata" \
+  "$expected" "$result"
+
+result=$(_nvim_lua '
+  local scope = require("nvim_workspace.picker.scope")
   local active = {}
   local killed = 0
   local canceled = 0
@@ -522,9 +533,8 @@ result=$(_nvim_lua "
   local scope = require('nvim_workspace.picker.scope')
   print(tostring(scope.is_searchable_path('$tmp/project/.config/app.lua')))
   print(tostring(scope.is_searchable_path('$tmp/project/.hg/origbackups/file.lua')))
-  print(table.concat(scope.vcs_exclude_args(), ','))
 ")
-expected="$(printf 'true\nfalse\n--exclude,.git,--exclude,.hg,--exclude,.jj,--exclude,.sl,--exclude,.svn')"
+expected="$(printf 'true\nfalse')"
 _assert_eq "searchable_path: excludes VCS metadata but keeps dotfiles" "$expected" "$result"
 
 result=$(_nvim_lua '
@@ -804,6 +814,73 @@ fi
 echo ""
 echo "=== grep picker helpers ==="
 
+if command -v rg >/dev/null 2>&1; then
+  result=$(_nvim_lua "
+    local grep = require('nvim_workspace.picker.grep')
+    local args = grep.recent_rg_args(
+      { 'rg', '--vimgrep', '--fixed-strings' },
+      'search visibility:',
+      { '$PWD/tests/picker-test' }
+    )
+    local lines = vim.fn.systemlist(args)
+    print(vim.v.shell_error)
+    print(#lines > 0 and lines[1]:find('search visibility:', 1, true) ~= nil)
+  ")
+  expected="$(printf '0\ntrue')"
+  _assert_eq "recent rg: searches exact paths with the installed ripgrep CLI" \
+    "$expected" "$result"
+else
+  echo "skip: recent rg installed-CLI integration requires ripgrep"
+fi
+
+result=$(_nvim_lua '
+  local grep = require("nvim_workspace.picker.grep")
+  local paths = {}
+  for i = 1, 200 do
+    paths[i] = "/home/me/" .. string.rep("segment/", 40) .. i .. ".lua"
+  end
+  local args = grep.recent_rg_args({ "rg" }, "needle", paths)
+  local bytes = 0
+  for _, arg in ipairs(args) do
+    bytes = bytes + #arg + 1
+  end
+  print(bytes <= 24 * 1024)
+  print(#args < #paths + 4)
+  print(args[#args] == paths[1])
+  print(grep.recent_rg_args({ "rg" }, string.rep("x", 24 * 1024), { "/one.lua" }) == nil)
+')
+expected="$(printf 'true\ntrue\nfalse\ntrue')"
+_assert_eq "recent rg: bounds exact paths to a portable argv budget" "$expected" "$result"
+
+if command -v rg >/dev/null 2>&1; then
+  mkdir -p "$tmp/recent-ignore"
+  printf '%s\n' 'ignored.lua' >"$tmp/recent-ignore/.ignore"
+  printf '%s\n' 'recent-policy-needle' >"$tmp/recent-ignore/ignored.lua"
+  result=$(_nvim_lua "
+    local grep = require('nvim_workspace.picker.grep')
+    local args = grep.recent_rg_args(
+      { 'rg', '--vimgrep', '--fixed-strings', '--hidden', '--no-ignore-vcs' },
+      'recent-policy-needle',
+      { '$tmp/recent-ignore/ignored.lua' }
+    )
+    local exact = vim.fn.systemlist(args)
+    local discovered = vim.fn.systemlist({
+      'rg', '--files', '--hidden', '--no-ignore-vcs', '$tmp/recent-ignore'
+    })
+    local found_ignored = false
+    for _, path in ipairs(discovered) do
+      found_ignored = found_ignored or path:match('/ignored%.lua$') ~= nil
+    end
+    print(vim.v.shell_error)
+    print(#exact)
+    print(found_ignored)
+  ")
+  expected="$(printf '0\n1\nfalse')"
+  _assert_eq "recent policy: explicit files override discovery ignores" "$expected" "$result"
+else
+  echo "skip: recent policy installed-CLI integration requires ripgrep"
+fi
+
 result=$(_nvim_lua '
   local grep = require("nvim_workspace.picker.grep")
   local r = grep.dedup_lines({
@@ -928,6 +1005,9 @@ result=$(_nvim_lua '
     end,
     resolve_root = function()
       return "/home/me", "/home/me"
+    end,
+    rg_visibility_args = function()
+      return {}
     end,
     source_name = function(source)
       return source.name

@@ -41,6 +41,7 @@ end
 local recent_files = require("nvim_workspace.core.recent")
 local scope = require("nvim_workspace.picker.scope")
 local root_result_limit = 200
+local recent_argv_budget = 24 * 1024
 
 function M.run_root_rg(cmd, callback)
   local lines = {}
@@ -128,6 +129,33 @@ function M.resolve_root(opts)
   return scope.resolve_root(opts)
 end
 
+function M.recent_rg_args(base, prompt, paths)
+  local args = { unpack(base) }
+  args[#args + 1] = "--max-count"
+  args[#args + 1] = "3"
+  args[#args + 1] = "--"
+  args[#args + 1] = prompt
+  local bytes = 0
+  for _, arg in ipairs(args) do
+    bytes = bytes + #arg + 1
+  end
+  local path_start = #args + 1
+  -- Preserve MRU order while leaving headroom beneath Windows' command-line
+  -- limit. Normal root search still provides the broader fallback.
+  for _, path in ipairs(paths) do
+    local next_bytes = bytes + #path + 1
+    if next_bytes > recent_argv_budget then
+      break
+    end
+    args[#args + 1] = path
+    bytes = next_bytes
+  end
+  if #args < path_start then
+    return nil
+  end
+  return args
+end
+
 function M.find(opts)
   opts = opts or {}
   local pickers = require("telescope.pickers")
@@ -167,6 +195,8 @@ function M.find(opts)
   local active_procs = {}
   local query_gen = 0
   local cleaned = false
+  -- Recent files represent explicit editor activity, so exact-file search may
+  -- revisit them even when root discovery suppresses their paths through .ignore.
   local recent = scope.filter_paths(recent_files.get(), root)
   local status = scope.status()
   local ops = scope.operation_status(status)
@@ -178,30 +208,14 @@ function M.find(opts)
     active_procs = {}
   end
 
-  local tmpfile
-  if #recent > 0 then
-    -- rg --files-from avoids command-line length limits and keeps paths exact,
-    -- which matters for spaces and symlink spellings in recent-file entries.
-    tmpfile = vim.fn.tempname()
-    vim.fn.writefile(recent, tmpfile)
-  end
-
   -- --fixed-strings: treat query as literal (no regex surprises from user input).
   -- --max-filesize 1M: skip large binaries/generated files.
   local rg_base = { "rg", "--vimgrep", "--fixed-strings", "--smart-case", "--max-filesize", "1M" }
+  vim.list_extend(rg_base, scope.rg_visibility_args())
 
   -- Search recent files first with --max-count 3 per file to avoid one large
   -- file flooding the results before the broader root search completes.
-  local rg_recent_prefix
-  if tmpfile then
-    rg_recent_prefix = { unpack(rg_base) }
-    local n = #rg_recent_prefix
-    rg_recent_prefix[n + 1] = "--max-count"
-    rg_recent_prefix[n + 2] = "3"
-    rg_recent_prefix[n + 3] = "--files-from"
-    rg_recent_prefix[n + 4] = tmpfile
-    rg_recent_prefix[n + 5] = "--"
-  end
+  local has_recent = #recent > 0
 
   local rg_root_prefix = { unpack(rg_base) }
   local n = #rg_root_prefix
@@ -225,10 +239,6 @@ function M.find(opts)
     end
     kill_active()
     ops:reset()
-    if tmpfile then
-      vim.fn.delete(tmpfile)
-      tmpfile = nil
-    end
     status:close()
   end
 
@@ -284,9 +294,7 @@ function M.find(opts)
               local results = {}
               local seen = {}
 
-              local n_sources = (rg_recent_prefix and 1 or 0)
-                + (use_root_rg and 1 or 0)
-                + #M.sources
+              local n_sources = (has_recent and 1 or 0) + (use_root_rg and 1 or 0) + #M.sources
               if n_sources == 0 then
                 return
               end
@@ -338,31 +346,34 @@ function M.find(opts)
               end
 
               -- Source 1: ripgrep on recent files
-              if rg_recent_prefix then
+              if has_recent then
                 ops:start("recent-rg", "Recent files...")
-                local cmd = { unpack(rg_recent_prefix) }
-                cmd[#cmd + 1] = prompt
-                local proc = vim.system(cmd, { text = true }, function(result)
-                  local stdout = result.stdout or ""
-                  vim.schedule(function()
-                    if
-                      cleaned
-                      or my_gen ~= query_gen
-                      or not vim.api.nvim_buf_is_valid(prompt_bufnr)
-                    then
-                      return
-                    end
-                    local parsed = {}
-                    if stdout ~= "" then
-                      for line in stdout:gmatch("[^\n]+") do
-                        parsed[#parsed + 1] = line
+                local cmd = M.recent_rg_args(rg_base, prompt, recent)
+                if not cmd then
+                  ops:finish("recent-rg", "Recent files: query too long")
+                else
+                  local proc = vim.system(cmd, { text = true }, function(result)
+                    local stdout = result.stdout or ""
+                    vim.schedule(function()
+                      if
+                        cleaned
+                        or my_gen ~= query_gen
+                        or not vim.api.nvim_buf_is_valid(prompt_bufnr)
+                      then
+                        return
                       end
-                    end
-                    source_done(parsed)
-                    ops:finish("recent-rg", ("Recent files: %d matches"):format(#parsed))
+                      local parsed = {}
+                      if stdout ~= "" then
+                        for line in stdout:gmatch("[^\n]+") do
+                          parsed[#parsed + 1] = line
+                        end
+                      end
+                      source_done(parsed)
+                      ops:finish("recent-rg", ("Recent files: %d matches"):format(#parsed))
+                    end)
                   end)
-                end)
-                scope.add_active_handle(active_procs, proc)
+                  scope.add_active_handle(active_procs, proc)
+                end
               end
 
               -- Root ripgrep is the broad fallback for normal roots. Large
