@@ -240,7 +240,8 @@ save_alias_sessions({persistence_plugin}) ~
   restoring the caller's cwd afterward.
 
 delete_missing_buffers() ~
-  Delete session-restored buffers whose files no longer exist.
+  Delete session-restored normal filesystem buffers whose files no longer
+  exist. Special and URI-backed buffers are preserved.
 
 refresh_current_filetype() ~
   Re-detect the current buffer's filetype without re-reading the file, preserving
