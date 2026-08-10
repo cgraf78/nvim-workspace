@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Load the checked-in Lua examples in headless Neovim.
+
+set -o pipefail
+
+# shellcheck source=tests/helpers.sh
+. "$(dirname "$0")/helpers.sh"
+
+echo "=== examples ==="
+
+result=$(_nvim_lua "
+  local calls = {}
+  local configured
+  package.loaded['nvim_workspace'] = {
+    setup = function(opts) configured = opts end,
+    files = function() calls[#calls + 1] = 'files' end,
+    grep = function() calls[#calls + 1] = 'grep' end,
+  }
+  local mappings = {}
+  local original_set = vim.keymap.set
+  vim.keymap.set = function(mode, lhs, rhs, opts)
+    mappings[#mappings + 1] = { mode = mode, lhs = lhs, rhs = rhs, opts = opts }
+  end
+  local spec = dofile('$TEST_ROOT/examples/lazy.lua')
+  spec.config()
+  vim.keymap.set = original_set
+  mappings[1].rhs()
+  mappings[2].rhs()
+  print(spec[1])
+  print(table.concat(spec.dependencies, ','))
+  print(configured.session.save_debounce_ms)
+  print(mappings[1].mode .. ':' .. mappings[1].lhs)
+  print(mappings[2].mode .. ':' .. mappings[2].lhs)
+  print(table.concat(calls, ','))
+")
+expected="$(printf '%s\n' \
+  'cgraf78/nvim-workspace' \
+  'nvim-lua/plenary.nvim,nvim-telescope/telescope.nvim' \
+  '500' \
+  'n:<C-p>' \
+  'n:<C-S-f>' \
+  'files,grep')"
+_assert_eq "examples: lazy.nvim spec configures setup and public mappings" \
+  "$expected" "$result"
+
+result=$(_nvim_lua "
+  local registered
+  package.loaded['nvim_workspace'] = {
+    path_query_terms = function(prompt)
+      local terms = {}
+      for term in prompt:gmatch('%S+') do terms[#terms + 1] = term end
+      return terms
+    end,
+    register_file_source = function(source, opts)
+      registered = { source = source, opts = opts }
+      return registered
+    end,
+  }
+  local example = dofile('$TEST_ROOT/examples/file-source.lua')
+  local registration = example.register({
+    paths = { 'README.md', 'lua/nvim_workspace/init.lua', 'docs/design.md' },
+    name = 'Example index',
+  })
+  local calls = {}
+  local statuses = {}
+  registration.source('lua init', function(paths, opts)
+    calls[#calls + 1] = { paths = paths, partial = opts and opts.partial or false }
+  end, '/repo', {
+    status = function(message) statuses[#statuses + 1] = message end,
+  })
+  assert(vim.wait(1000, function() return #calls == 2 end, 5))
+  print(registration.opts.name)
+  print(statuses[1])
+  print(table.concat(calls[1].paths, ',') .. ':' .. tostring(calls[1].partial))
+  print(table.concat(calls[2].paths, ',') .. ':' .. tostring(calls[2].partial))
+
+  local canceled_calls = 0
+  local handle = registration.source('', function()
+    canceled_calls = canceled_calls + 1
+  end, '/repo', { status = function() end })
+  handle:cancel()
+  local scheduled = false
+  vim.schedule(function() scheduled = true end)
+  assert(vim.wait(1000, function() return scheduled end, 5))
+  print(canceled_calls)
+")
+expected="$(printf '%s\n' \
+  'Example index' \
+  'Example index: 1 match' \
+  '/repo/lua/nvim_workspace/init.lua:true' \
+  ':false' \
+  '0')"
+_assert_eq "examples: file source streams, completes, and honors cancellation" \
+  "$expected" "$result"
