@@ -29,7 +29,12 @@ end
 function M.delete_missing_buffers()
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     local name = vim.api.nvim_buf_get_name(buf)
-    if name ~= "" and not uv.fs_stat(name) then
+    if
+      vim.bo[buf].buftype == ""
+      and name ~= ""
+      and not name:match("^%w[%w+.-]*://")
+      and not uv.fs_stat(name)
+    then
       vim.api.nvim_buf_delete(buf, { force = true })
     end
   end

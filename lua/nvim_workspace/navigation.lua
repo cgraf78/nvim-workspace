@@ -49,9 +49,15 @@ end
 
 local function supports_method(client, bufnr, method)
   if type(client.supports_method) == "function" then
-    local ok, supported = pcall(client.supports_method, client, method, bufnr)
-    if ok and supported then
-      return true
+    -- Neovim 0.10 expects an opts table, while newer releases accept that form
+    -- for compatibility and prefer a numeric buffer. Try the shared form first,
+    -- then accommodate custom wrappers that implement only the newer signature.
+    local ok, supported = pcall(client.supports_method, client, method, { bufnr = bufnr })
+    if not ok then
+      ok, supported = pcall(client.supports_method, client, method, bufnr)
+    end
+    if ok then
+      return supported == true
     end
   end
 

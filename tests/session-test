@@ -76,6 +76,34 @@ expected="$(printf '0\nfalse')"
 _assert_eq "session: load_current clears arglist and prunes missing buffers" \
   "$expected" "$result"
 
+existing_file="$tmp/existing.lua"
+printf '%s\n' 'print("existing")' >"$existing_file"
+result=$(_nvim_lua "
+  local restore = require('nvim_workspace.session')
+  local buf = vim.fn.bufadd('$existing_file')
+  restore.delete_missing_buffers()
+  print(tostring(vim.api.nvim_buf_is_valid(buf)))
+")
+_assert_eq "session: missing-buffer repair preserves existing file buffers" "true" "$result"
+
+result=$(_nvim_lua "
+  local restore = require('nvim_workspace.session')
+  local buf = vim.api.nvim_create_buf(true, true)
+  vim.api.nvim_buf_set_name(buf, 'session-special-buffer')
+  restore.delete_missing_buffers()
+  print(tostring(vim.api.nvim_buf_is_valid(buf)))
+")
+_assert_eq "session: missing-buffer repair preserves named special buffers" "true" "$result"
+
+result=$(_nvim_lua "
+  local restore = require('nvim_workspace.session')
+  local buf = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_buf_set_name(buf, 'term://session-terminal')
+  restore.delete_missing_buffers()
+  print(tostring(vim.api.nvim_buf_is_valid(buf)))
+")
+_assert_eq "session: missing-buffer repair preserves URI-named normal buffers" "true" "$result"
+
 save_tmp=$(_tmpdir)
 mkdir -p "$save_tmp/home" "$save_tmp/project/src" "$save_tmp/project/.git"
 save_file="$save_tmp/project/src/session.lua"

@@ -237,6 +237,84 @@ _assert_eq "navigation: has_lsp_definition reflects client capabilities" \
   "$expected" "$result"
 
 result=$(_nvim_lua "
+  local navigation = require('nvim_workspace.navigation')
+  local get_clients = vim.lsp.get_clients
+  vim.lsp.get_clients = function()
+    return {
+      {
+        stop = function() end,
+        supports_method = function(_, _, opts)
+          return type(opts) == 'table' and opts.bufnr == 0
+        end,
+        server_capabilities = { definitionProvider = false },
+      },
+    }
+  end
+  print(tostring(navigation.has_lsp_definition(0)))
+  vim.lsp.get_clients = get_clients
+")
+_assert_eq "navigation: definition support uses Neovim 0.10 options shape" "true" "$result"
+
+result=$(_nvim_lua "
+  local navigation = require('nvim_workspace.navigation')
+  local get_clients = vim.lsp.get_clients
+  vim.lsp.get_clients = function()
+    return {
+      {
+        stop = function() end,
+        supports_method = function(_, _, bufnr)
+          if type(bufnr) ~= 'number' then
+            error('numeric buffer required')
+          end
+          return bufnr == 0
+        end,
+        server_capabilities = { definitionProvider = false },
+      },
+    }
+  end
+  print(tostring(navigation.has_lsp_definition(0)))
+  vim.lsp.get_clients = get_clients
+")
+_assert_eq "navigation: definition support retries numeric custom clients" "true" "$result"
+
+result=$(_nvim_lua "
+  local navigation = require('nvim_workspace.navigation')
+  local get_clients = vim.lsp.get_clients
+  vim.lsp.get_clients = function()
+    return {
+      {
+        stop = function() end,
+        supports_method = function()
+          return false
+        end,
+        server_capabilities = { definitionProvider = true },
+      },
+    }
+  end
+  print(tostring(navigation.has_lsp_definition(0)))
+  vim.lsp.get_clients = get_clients
+")
+_assert_eq "navigation: definition support preserves authoritative false" "false" "$result"
+
+result=$(_nvim_lua "
+  local navigation = require('nvim_workspace.navigation')
+  local get_clients = vim.lsp.get_clients
+  vim.lsp.get_clients = function()
+    return {
+      {
+        supports_method = function()
+          error('unsupported compatibility wrapper')
+        end,
+        server_capabilities = { definitionProvider = true },
+      },
+    }
+  end
+  print(tostring(navigation.has_lsp_definition(0)))
+  vim.lsp.get_clients = get_clients
+")
+_assert_eq "navigation: unusable method wrappers fall back to static capabilities" "true" "$result"
+
+result=$(_nvim_lua "
   require('nvim_workspace').setup({
     navigation = { path_first_filetypes = {} },
   })
