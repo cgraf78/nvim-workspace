@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   shell:
-    uses: cgraf78/actions/.github/workflows/shell-ci.yml@2a6119d7886443929e1961a0e11b8dafa71c1978
+    uses: cgraf78/actions/.github/workflows/shell-ci.yml@164cc8e8aaa9e13dd0e4b8ca1a24404799d8072d
     with:
       matrix-set: full
       profiles: base,lua,neovim,python
@@ -42,4 +42,4 @@ jobs:
       # files, so `.github/cgraf78-actions.lock` cannot be interpolated. This gate
       # verifies every unavoidable cgraf78/actions literal still matches that
       # single reviewed dependency decision.
-      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@2a6119d7886443929e1961a0e11b8dafa71c1978
+      - uses: cgraf78/actions/.github/actions/verify-consumer-sync@164cc8e8aaa9e13dd0e4b8ca1a24404799d8072d
