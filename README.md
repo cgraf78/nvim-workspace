@@ -1,5 +1,7 @@
 # nvim-workspace
 
+![Tests](https://github.com/cgraf78/nvim-workspace/actions/workflows/test.yml/badge.svg?branch=main)
+
 Workspace-aware navigation, search, explorer, and session policy for Neovim.
 
 `nvim-workspace` provides a VS Code-like workspace navigation model while
