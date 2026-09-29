@@ -9,7 +9,7 @@ root README documents them as supported integration points.
 - `config.lua` normalizes user options.
 - `core/` owns workspace detection, list/recent state, LSP integration, and
   libuv wrappers.
-- `picker/` owns picker-agnostic file, grep, and scope behavior.
+- `picker/` owns the Telescope-backed file, grep, and scope behavior.
 - `navigation.lua`, `session.lua`, `shell.lua`, `lazygit.lua`, and
   `neo_tree.lua` provide focused integrations over the core workspace model.
 

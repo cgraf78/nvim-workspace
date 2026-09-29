@@ -44,8 +44,21 @@ large_root_detector ~
 
 workspace.repo_root_detector ~
   Optional function called as `fn(start, opts)`. Return a root string when the
-  host config has a preferred repo detector. When unset or nil, nvim-workspace
-  falls back to common VCS markers such as `.git`, `.hg`, `.jj`, and `.svn`.
+  host config has a preferred repo detector. By default it is called only when
+  no VCS marker (`.git`, `.hg`, `.jj`, or `.svn`) is found; see
+  `workspace.prefer_marker_roots`. When unset or nil, nvim-workspace uses the
+  marker root.
+
+workspace.prefer_marker_roots ~
+  Boolean, default `true`. When a VCS marker root is found, return it without
+  calling `workspace.repo_root_detector`. Set to `false` to call the detector
+  first; it then receives the marker root as `opts.marker_root`, and the
+  marker root remains the fallback when the detector returns nil.
+
+workspace.ignored_marker_roots ~
+  List of root paths, default `{}`. A VCS marker root that matches one of
+  these paths is ignored before detector dispatch, as if no marker was found.
+  Useful for broad placeholder repositories such as a HOME-level `.git`.
 
 workspace.home_workspace_detector ~
   Optional function called as `fn(start, opts)`. Return a root string when the
@@ -58,6 +71,44 @@ lazygit.opts_for_path ~
   repositories, or nil for normal repo behavior. `ctx.default_root` is the broad
   workspace root; `ctx.relative_to_default_root(path)` returns a root-relative
   spelling for host policies that need one.
+
+shell.shell_glob ~
+  Glob string, default `"*@(.sh|.inc|.bash|.zsh|.command)"`. File-name pattern
+  used to derive `shell.recursive_glob`. See |nvim-workspace-shell| for shell
+  workspace setup.
+
+shell.recursive_glob ~
+  Glob string, default `"**/" .. shell.shell_glob`. bashls globPattern for
+  normal repos. HOME and enabled overlay roots use it only when
+  `shell.home_files` and `shell.home_globs` are empty and no `shell.home_dirs`
+  entry has a `glob`; `shell.home_files` defaults to the standard shell rc
+  files, so by default they use the bounded HOME patterns instead.
+
+shell.file_globs ~
+  List of globs, default
+  `{ "*.sh", "*.inc", "*.bash", "*.zsh", "*.command" }`. File patterns for
+  fallback shell-symbol search in normal repos.
+
+shell.home_files ~
+  List of HOME-relative paths, default `{ ".bashrc", ".bash_profile",
+  ".profile", ".zshenv", ".zprofile", ".zshrc" }`. Files that belong to the
+  bounded HOME shell workspace.
+
+shell.home_globs ~
+  List of HOME-relative globs, default `{}`. Additional files that belong to
+  the bounded HOME shell workspace.
+
+shell.home_dirs ~
+  List of tables, default `{}`. An entry's `prefix` marks HOME-relative paths
+  under that directory as HOME shell paths; `direct = true` limits it to
+  direct children. An optional `glob` is added to the bashls globPattern, and
+  its directory is added to the fallback search paths.
+
+shell.overlay ~
+  Table, default `{ enabled = false, root_prefix = nil, home_dir = "home" }`.
+  When enabled, a directory whose HOME-relative path starts with `root_prefix`
+  and that contains a `home_dir` child is a HOME-shaped overlay: paths below
+  `home_dir` follow the HOME rules above.
 
 session ~
   Optional table. When set, `setup()` calls `nvim_workspace.session.setup()` to
