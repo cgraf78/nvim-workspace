@@ -6,6 +6,7 @@ one plugin area with shell-driven Neovim/Lua fixtures.
 ## Suite Scope
 
 - `api-test` covers the public Lua API.
+- `examples-test` loads the checked-in `examples/` Lua files.
 - `workspace-test` and `recent-test` cover core workspace state.
 - `picker-test`, `navigation-test`, `session-test`, `shell-test`,
   `lazygit-test`, and `neo-tree-test` cover integrations.
