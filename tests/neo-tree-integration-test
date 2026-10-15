@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+test_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+# Bypass HOME-dependent public launchers while preserving the managed binary.
+nvim_bin=${NVIM_WORKSPACE_TEST_NVIM_BIN:-$HOME/.local/share/neovim/neovim/bin/nvim}
+if [[ ! -x "$nvim_bin" ]]; then
+  nvim_bin=$(command -v nvim)
+fi
+# Resolve optional read-only dependencies before replacing HOME and XDG roots.
+plugin_root=${NVIM_WORKSPACE_TEST_PLUGIN_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/nvim/lazy}
+neotree_dir=${NVIM_WORKSPACE_TEST_NEOTREE_DIR:-$plugin_root/neo-tree.nvim}
+nui_dir=${NVIM_WORKSPACE_TEST_NUI_DIR:-$plugin_root/nui.nvim}
+plenary_dir=${NVIM_WORKSPACE_TEST_PLENARY_DIR:-$plugin_root/plenary.nvim}
+devicons_dir=${NVIM_WORKSPACE_TEST_DEVICONS_DIR:-$plugin_root/nvim-web-devicons}
+for plugin_dir in "$neotree_dir" "$nui_dir" "$plenary_dir" "$devicons_dir"; do
+  if [[ ! -d "$plugin_dir/lua" ]]; then
+    printf 'SKIP: neo-tree integration dependencies unavailable: %s\n' "$plugin_dir"
+    exit 0
+  fi
+done
+
+test_tmp=$(mktemp -d "${TMPDIR:-/tmp}/nvim-workspace-neotree.XXXXXXXX")
+cleanup() {
+  local status=$?
+  if ((status == 0)); then
+    rm -rf -- "$test_tmp"
+  else
+    printf 'Neo-tree integration fixtures preserved: %s\n' "$test_tmp" >&2
+  fi
+}
+trap cleanup EXIT
+# Neo-tree and buffer names resolve directory aliases such as macOS /var.
+test_tmp=$(
+  cd "$test_tmp" || exit
+  pwd -P
+)
+mkdir -p "$test_tmp"/{home,config,data,state,cache,tmp}
+export HOME="$test_tmp/home" XDG_CONFIG_HOME="$test_tmp/config"
+export XDG_DATA_HOME="$test_tmp/data" XDG_STATE_HOME="$test_tmp/state"
+export XDG_CACHE_HOME="$test_tmp/cache" TMPDIR="$test_tmp/tmp"
+export NVIM_LOG_FILE="$test_tmp/state/nvim.log"
+export NVIM_WORKSPACE_TEST_ROOT="$test_root" NVIM_WORKSPACE_TEST_TMP="$test_tmp"
+export NVIM_WORKSPACE_TEST_NEOTREE_DIR="$neotree_dir" NVIM_WORKSPACE_TEST_NUI_DIR="$nui_dir"
+export NVIM_WORKSPACE_TEST_PLENARY_DIR="$plenary_dir"
+export NVIM_WORKSPACE_TEST_DEVICONS_DIR="$devicons_dir"
+unset VIMINIT EXINIT MYVIMRC NVIM_APPNAME NVIM NVIM_LISTEN_ADDRESS
+"$nvim_bin" --headless --noplugin -u NONE -i NONE \
+  -c 'lua dofile(vim.env.NVIM_WORKSPACE_TEST_ROOT .. "/tests/neo-tree-integration.lua")' \
+  -c 'cquit 1'

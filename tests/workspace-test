@@ -381,3 +381,14 @@ result=$(_nvim_lua "
 expected="$(printf 'true\n%s\nnil' "$tmp/project-link")"
 _assert_eq "large roots: workspace preserves explicit roots without leaking private opts" \
   "$expected" "$result"
+
+result=$(_nvim_lua "
+  local workspace = require('nvim_workspace.core.workspace')
+  print(tostring(workspace.contains('/', '$tmp/project/src/file.lua')))
+  print(workspace.visible_path('/', '$tmp/project/src/file.lua'))
+  print(workspace.relative_path('/', '$tmp/project/src/file.lua'))
+  print(workspace.visible_relative_path('/', '$tmp/project/src/file.lua'))
+")
+expected="$(printf 'true\n%s\n%s\n%s' \
+  "$tmp/project/src/file.lua" "${project_real#/}/src/file.lua" "${tmp#/}/project/src/file.lua")"
+_assert_eq "filesystem root: containment and relative mappings retain slash boundary" "$expected" "$result"
