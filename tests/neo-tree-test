@@ -8,6 +8,9 @@ set -o pipefail
 echo "=== neo-tree integration ==="
 
 tmp=$(_tmpdir)
+# Buffer names resolve directory symlinks, including macOS /var -> /private/var.
+# Keep these root-selection fixtures physical; alias cases add their own links.
+tmp=$(_realpath "$tmp")
 mkdir -p "$tmp/home" "$tmp/data/project/src" "$tmp/outside"
 touch "$tmp/data/project/src/file.cpp" "$tmp/outside/target.cpp"
 ln -s "$tmp/data/project" "$tmp/home/project"

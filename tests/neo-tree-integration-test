@@ -31,6 +31,11 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+# Neo-tree and buffer names resolve directory aliases such as macOS /var.
+test_tmp=$(
+  cd "$test_tmp" || exit
+  pwd -P
+)
 mkdir -p "$test_tmp"/{home,config,data,state,cache,tmp}
 export HOME="$test_tmp/home" XDG_CONFIG_HOME="$test_tmp/config"
 export XDG_DATA_HOME="$test_tmp/data" XDG_STATE_HOME="$test_tmp/state"
