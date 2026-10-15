@@ -124,7 +124,9 @@ tree.setup_manager_patch()
 
 require("neo-tree").setup({
   filesystem = {
-    follow_current_file = { enabled = true },
+    bind_to_cwd = false,
+    -- The workspace helper owns following, including root transitions.
+    follow_current_file = { enabled = false },
     filtered_items = tree.filesystem_policy().filtered_items,
     window = {
       mappings = tree.filesystem_mappings(),
@@ -133,9 +135,20 @@ require("neo-tree").setup({
 })
 ```
 
-Use `tree.open(nil, { toggle = true })` for a broad HOME explorer and
-`tree.open(tree.context_root(), { action = "focus" })` for a workspace-root
-explorer.
+Use `tree.open(nil, { toggle = true })` for an explorer that follows the active
+file without narrowing an existing containing root. It starts at HOME for files
+in HOME's visible tree, a VCS root for external projects, or the parent directory
+for standalone external files. A visible sidebar switches scope only when a real
+file outside its root becomes active; special buffers and tree browsing preserve
+its context. Each tab keeps its own context, and a closed sidebar stays closed.
+
+Use `tree.open(tree.context_root(), { action = "focus" })` for a workspace-root
+explorer, or pass an explicit directory such as `vim.env.HOME`. Explicit roots
+are honored immediately and remain until an outside file becomes active.
+`{ reveal = false }` suppresses revealing the current file. Named new files select
+a root from their existing parent but are revealed only after they exist.
+Keep `filesystem.bind_to_cwd = false` so following never changes the editor's
+working directory.
 
 ## Sessions
 

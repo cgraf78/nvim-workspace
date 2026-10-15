@@ -1,7 +1,7 @@
 local M = {}
 local uv = require("nvim_workspace.core.uv")
 local reveal_scheduled = false
-local last_file
+local last_files = {}
 
 local function workspace()
   return require("nvim_workspace.core.workspace")
@@ -18,8 +18,15 @@ local function current_file()
   end
 
   local stat = uv.fs_stat(path)
-  if not stat or stat.type == "directory" then
+  if stat and stat.type == "directory" then
     return nil
+  end
+  if not stat then
+    -- Named new buffers still have useful scope, but cannot be revealed yet.
+    local parent = uv.fs_stat(vim.fs.dirname(path))
+    if not parent or parent.type ~= "directory" then
+      return nil
+    end
   end
 
   return path
@@ -131,15 +138,30 @@ local function visible_file(root, path)
   return ok and visible or nil
 end
 
-function M.root_dir()
-  if vim.bo.filetype == "neo-tree" then
-    local root = current_filesystem_root()
-    if root then
-      return root
-    end
+---Choose a useful root without narrowing an existing containing tree.
+local function root_for_file(path, root)
+  if visible_file(root, path) then
+    return root
   end
 
-  return workspace().default_root()
+  local ws = workspace()
+  local home = ws.default_root()
+  if visible_file(home, path) then
+    return home
+  end
+
+  local dir = ws.normalize(vim.fs.dirname(path))
+  return ws.find_vcs_root(dir) or dir
+end
+
+---Return this tab's browsing root, adapting it only for an outside file.
+function M.root_dir()
+  local root = current_filesystem_root()
+  local path = current_file()
+  if path then
+    return root_for_file(path, root)
+  end
+  return root or workspace().default_root()
 end
 
 function M.context_root()
@@ -148,18 +170,16 @@ function M.context_root()
 end
 
 function M.reveal_file(root, path)
-  path = path or M.remember_current_file() or last_file
+  path = path or M.remember_current_file() or last_files[vim.api.nvim_get_current_tabpage()]
   if type(path) ~= "string" or path == "" then
     return nil
   end
 
   root = root or current_filesystem_root()
-  local visible = visible_file(root, path)
-  if visible then
-    return visible
+  if not uv.fs_stat(path) then
+    return nil
   end
-
-  return path
+  return visible_file(root, path)
 end
 
 function M.open(root, opts)
@@ -169,9 +189,13 @@ function M.open(root, opts)
   M.apply_filesystem_policy(policy)
 
   require("neo-tree.command").execute({
+    source = "filesystem",
     action = opts.action,
     toggle = opts.toggle,
-    reveal_file = opts.reveal == false and nil or M.reveal_file(root),
+    -- Explicit false prevents Neo-tree from inferring an outside reveal from
+    -- follow_current_file, including when an explicit Home root was requested.
+    reveal = false,
+    reveal_file = opts.reveal ~= false and M.reveal_file(root) or nil,
     dir = root,
   }, policy)
 end
@@ -201,7 +225,7 @@ end
 function M.remember_current_file()
   local path = current_file()
   if path then
-    last_file = path
+    last_files[vim.api.nvim_get_current_tabpage()] = path
   end
   return path
 end
@@ -225,21 +249,37 @@ function M.reveal_open_tree()
   if not ok_state or type(state) ~= "table" or type(state.path) ~= "string" or state.path == "" then
     return
   end
-  if not renderer.window_exists(state) then
+  if
+    state.current_position == "float"
+    or state.current_position == "current"
+    or not renderer.window_exists(state)
+  then
     return
   end
 
-  local visible = visible_file(state.path, path)
-  if not visible then
+  local root = root_for_file(path, state.path)
+  local visible = M.reveal_file(root, path)
+  -- Scans can replace the tree while a reveal is pending. Its cursor window
+  -- may already be gone even though the sidebar itself still exists.
+  local node
+  if state.tree then
+    local ok_node, selected = pcall(state.tree.get_node, state.tree)
+    node = ok_node and selected or nil
+  end
+  if root == state.path and (not visible or node and node:get_id() == visible) then
     return
   end
 
-  local node = state.tree and state.tree:get_node()
-  if node and node:get_id() == visible then
-    return
-  end
-
-  command.execute({ action = "show", reveal_file = visible, dir = state.path })
+  -- Use the sidebar's actual position so another source/position cannot absorb
+  -- this command, and keep focus in the editor throughout the transition.
+  command.execute({
+    source = "filesystem",
+    position = state.current_position,
+    action = "show",
+    reveal = false,
+    reveal_file = visible,
+    dir = root,
+  })
 end
 
 function M.schedule_reveal_open_tree()
@@ -258,6 +298,16 @@ function M.setup_follow_autocmd()
   vim.g.nvim_workspace_neotree_follow_autocmd = true
 
   local group = vim.api.nvim_create_augroup("nvim_workspace_neotree_follow", { clear = true })
+  vim.api.nvim_create_autocmd("TabClosed", {
+    group = group,
+    callback = function()
+      for tab in pairs(last_files) do
+        if not vim.api.nvim_tabpage_is_valid(tab) then
+          last_files[tab] = nil
+        end
+      end
+    end,
+  })
   vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter" }, {
     group = group,
     callback = function()

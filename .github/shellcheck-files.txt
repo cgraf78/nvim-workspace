@@ -5,6 +5,7 @@ program	tests/examples-test
 program	tests/helpers.sh
 program	tests/lazygit-test
 program	tests/navigation-test
+program	tests/neo-tree-integration-test
 program	tests/neo-tree-test
 program	tests/picker-test
 program	tests/recent-test

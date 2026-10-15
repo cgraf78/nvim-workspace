@@ -9,6 +9,7 @@ tests/workspace-test
 tests/picker-test
 tests/session-test
 tests/neo-tree-test
+tests/neo-tree-integration-test
 tests/lazygit-test
 tests/shell-test
 tests/navigation-test

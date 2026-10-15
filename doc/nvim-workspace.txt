@@ -221,18 +221,25 @@ apply_filesystem_policy({policy}) ~
   used during navigation.
 
 root_dir() ~
-  Return the current Neo-tree filesystem root when focused in Neo-tree, or the
-  broad default workspace root otherwise.
+  Retain this tab's filesystem root when it can contain the active file.
+  Otherwise select HOME for files in its visible tree, the VCS root for an
+  external project, or the file's parent directory. With no real file buffer,
+  retain the existing root or fall back to HOME.
 
 context_root() ~
   Return the canonical workspace root for the current buffer context.
 
 reveal_file({root}, {path}) ~
-  Return {path} rewritten into {root}'s visible spelling when possible. This is
-  useful for symlinked HOME aliases and Neo-tree reveal calls.
+  Return an existing file rewritten into {root}'s visible spelling, or nil
+  when outside the root or missing. Without {path}, use the current file or
+  this tab's last real file. Visible aliases and file symlink names survive.
 
 open({root}, {opts}) ~
-  Open Neo-tree with nvim-workspace root, reveal, and filesystem policy.
+  Open the filesystem explorer with root, reveal, and per-root policy. An
+  explicit {root} is honored; nil uses root_dir(). {opts.reveal=false} disables
+  reveal. New named files with existing parents select scope without revealing
+  nonexistent nodes. Set filesystem.bind_to_cwd=false in Neo-tree's config to
+  keep explorer navigation independent of the editor's working directory.
 
 prompt_for_root({default_root}) ~
   Prompt for an explorer root and open Neo-tree focused on the chosen root.
@@ -242,18 +249,23 @@ filesystem_mappings() ~
   for workspace root, and CTRL-D to prompt for a directory.
 
 remember_current_file() ~
-  Remember and return the current real file buffer so Neo-tree follow behavior
-  can ignore synthetic or special buffers.
+  Remember and return this tab's current real file buffer, including a named
+  new file with an existing parent. Synthetic and special buffers are ignored.
 
 reveal_open_tree() ~
-  Reveal the remembered/current file in an already-open Neo-tree filesystem
-  window when the file is inside that tree's visible root.
+  Follow the current real file in this tab's visible filesystem sidebar,
+  retaining the root while the file fits and selecting root_dir() otherwise.
+  Special buffers, floating/current-window trees, and closed sidebars are left
+  alone. Explicit roots remain until an outside real file becomes active.
+  Following does not move keyboard focus.
 
 schedule_reveal_open_tree() ~
   Debounce `reveal_open_tree()` for follow-current-file autocmds.
 
 setup_follow_autocmd() ~
   Register the follow-current-file autocmd used by the Neo-tree manager patch.
+  Disable Neo-tree's native filesystem.follow_current_file.enabled so this
+  helper is the sole follow owner, including ordinary in-root reveals.
 
 setup_manager_patch() ~
   Patch Neo-tree manager boundaries so reveal paths preserve visible HOME

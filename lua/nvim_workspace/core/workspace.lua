@@ -28,7 +28,18 @@ function M.absolute_path(path)
 end
 
 local function path_contains(root, path)
-  return path == root or path:sub(1, #root + 1) == root .. "/"
+  return path == root
+    or root == "/" and path:sub(1, 1) == "/"
+    or path:sub(1, #root + 1) == root .. "/"
+end
+
+-- Include the separator so aliases can be joined without special-casing the
+-- filesystem root at every consumer.
+local function path_suffix(root, path)
+  if path == root then
+    return ""
+  end
+  return root == "/" and path or path:sub(#root + 1)
 end
 
 local function current_file_name()
@@ -79,6 +90,17 @@ local function load_home_aliases()
   return home_aliases
 end
 
+-- A new file has no realpath, but its existing parent can still be a symlink.
+-- Keep the filename intact so named new buffers share existing-file scope.
+local function real_path(path)
+  local canonical = uv.fs_realpath(path)
+  if not canonical and not uv.fs_stat(path) then
+    local parent = uv.fs_realpath(vim.fs.dirname(path))
+    canonical = parent and (parent .. "/" .. vim.fs.basename(path))
+  end
+  return strip_trailing_slash(canonical or path)
+end
+
 -- Map canonical paths back through visible HOME aliases when possible. This
 -- keeps picker and Neo-tree paths on the same user-facing root. Terminal click
 -- handling intentionally lives outside workspace root policy.
@@ -88,10 +110,10 @@ local function home_visible_path(path)
     return normalized
   end
 
-  local canonical = strip_trailing_slash(uv.fs_realpath(normalized) or normalized)
+  local canonical = real_path(normalized)
   for _, alias in ipairs(load_home_aliases()) do
     if path_contains(alias.canonical, canonical) then
-      return alias.visible .. canonical:sub(#alias.canonical + 1)
+      return alias.visible .. path_suffix(alias.canonical, canonical)
     end
   end
   return normalized
@@ -192,10 +214,10 @@ function M.visible_path(root, path)
   end
 
   local canonical_root = M.canonical(root)
-  local canonical_path =
-    strip_trailing_slash(uv.fs_realpath(M.absolute_path(path)) or M.absolute_path(path))
+  local canonical_path = real_path(M.absolute_path(path))
   if path_contains(canonical_root, canonical_path) then
-    return normalized_root .. canonical_path:sub(#canonical_root + 1)
+    return normalized_root == "/" and canonical_path
+      or normalized_root .. path_suffix(canonical_root, canonical_path)
   end
   return nil
 end
@@ -209,10 +231,10 @@ function M.relative_path(root, path)
   if canonical_path == canonical_root then
     return ""
   end
-  if canonical_path:sub(1, #canonical_root + 1) ~= canonical_root .. "/" then
+  if not path_contains(canonical_root, canonical_path) then
     return nil
   end
-  return canonical_path:sub(#canonical_root + 2)
+  return path_suffix(canonical_root, canonical_path):sub(2)
 end
 
 -- Return a root-relative path while preserving the visible path spelling.
@@ -227,10 +249,7 @@ function M.visible_relative_path(root, path)
   if visible == normalized_root then
     return ""
   end
-  if visible:sub(1, #normalized_root + 1) ~= normalized_root .. "/" then
-    return nil
-  end
-  return visible:sub(#normalized_root + 2)
+  return path_suffix(normalized_root, visible):sub(2)
 end
 
 -- Compact a root for prompts, titles, and notifications.
