@@ -34,12 +34,16 @@ callbacks.
 
 - `tests/run` is the local and CI entry point (`make test` is an alias).
 - Requirements: `nvim` and `python3` (used by `helpers.sh` and several suites).
-  The `rg` integration cases skip when `rg` is absent; no suite needs `fd`.
+  The `rg` integration cases skip when `rg` is absent (no CI profile
+  installs ripgrep, so most legs skip them), and the fd/rg runtime cases in
+  `picker-test` skip under Neovim older than 0.10, which some distro legs
+  ship. No suite needs `fd`.
 - `tests/neo-tree-integration-test` runs only when neo-tree.nvim, nui.nvim,
   plenary.nvim, and nvim-web-devicons exist under
   `${XDG_DATA_HOME:-$HOME/.local/share}/nvim/lazy` (or the
-  `NVIM_WORKSPACE_TEST_*_DIR` overrides). CI has none of them, so it skips
-  there: run it locally after touching Neo-tree code.
+  `NVIM_WORKSPACE_TEST_PLUGIN_ROOT` and `NVIM_WORKSPACE_TEST_*_DIR`
+  overrides). CI has none of them, so it skips there: run it locally after
+  touching Neo-tree code.
 - CI runs the shared shell matrix (macOS, CentOS Stream, Arch, Debian,
   Ubuntu, WSL, Fedora, Alpine) with profiles `base,lua,neovim,python`, and
   Termux with `base,neovim,python`. Termux has no standalone `lua` (lua54 and
