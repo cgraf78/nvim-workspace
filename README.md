@@ -9,6 +9,13 @@ staying Neovim-native: recent-first file search, workspace-wide grep, explicit
 root switching, HOME/symlink-aware path display, optional Neo-tree integration,
 session aliases for project roots, and safe behavior for large workspace roots.
 
+It is built on Telescope. Its recent list is ordered by recency (files
+visited this session, then its own list from earlier sessions, then Neovim's
+`v:oldfiles`), not by a frecency score like telescope-frecency's. Unlike
+project.nvim, it does not move your working directory to a detected project
+root; you switch picker roots explicitly instead. If your config already
+standardizes on snacks.picker or fzf-lua, this adds a second picker stack.
+
 ## Features
 
 - file picker that shows recent files immediately, then progressively merges
@@ -33,11 +40,54 @@ session aliases for project roots, and safe behavior for large workspace roots.
 ## Requirements
 
 - Neovim 0.10+
-- Telescope
-- `fd` or `fdfind`
-- `rg`
+- [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) and
+  [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)
+- `fd` or `fdfind` for the file picker
+- `rg` for the grep picker and shell-symbol navigation
 
 ## Setup
+
+With [lazy.nvim](https://github.com/folke/lazy.nvim), add this spec to your
+plugins directory. It is [`examples/lazy.lua`](examples/lazy.lua), which the
+test suite loads:
+
+```lua
+return {
+  "cgraf78/nvim-workspace",
+  dependencies = {
+    "nvim-lua/plenary.nvim",
+    "nvim-telescope/telescope.nvim",
+  },
+  config = function()
+    local workspace = require("nvim_workspace")
+
+    workspace.setup({
+      session = {
+        save_debounce_ms = 500,
+      },
+    })
+
+    vim.keymap.set("n", "<C-p>", workspace.files, {
+      desc = "Workspace files",
+    })
+    vim.keymap.set("n", "<C-S-f>", workspace.grep, {
+      desc = "Workspace grep",
+    })
+  end,
+}
+```
+
+The plugin also registers:
+
+```vim
+:WorkspaceFiles [dir]
+:WorkspaceGrep [dir]
+```
+
+### Configuration hooks
+
+Every `setup()` option is optional. Host configs inject policy through
+callbacks; this block shows each hook's signature with a no-op return value:
 
 ```lua
 require("nvim_workspace").setup({
@@ -61,24 +111,6 @@ require("nvim_workspace").setup({
     save_debounce_ms = 500,
   },
 })
-
-vim.keymap.set("n", "<C-p>", function()
-  require("nvim_workspace").files()
-end)
-
-vim.keymap.set("n", "<C-S-f>", function()
-  require("nvim_workspace").grep()
-end)
-```
-
-For a complete lazy.nvim installation specification, see
-[`examples/lazy.lua`](examples/lazy.lua).
-
-The plugin also registers:
-
-```vim
-:WorkspaceFiles [dir]
-:WorkspaceGrep [dir]
 ```
 
 ## Public API
@@ -266,5 +298,5 @@ tests/run
 
 `make test` is also available as a local convenience wrapper.
 
-The test suite is intentionally derived from the original dotfiles Neovim tests
-so behavior stays stable across the extraction.
+nvim-workspace is used in
+[dotfiles-nvim](https://github.com/cgraf78/dotfiles-nvim).
