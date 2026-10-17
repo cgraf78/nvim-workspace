@@ -1,6 +1,8 @@
 # nvim-workspace
 
-![Tests](https://github.com/cgraf78/nvim-workspace/actions/workflows/test.yml/badge.svg?branch=main)
+[![Tests](https://github.com/cgraf78/nvim-workspace/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/cgraf78/nvim-workspace/actions/workflows/test.yml?query=branch%3Amain)
+[![License](https://img.shields.io/badge/license-MIT-67ac09)](LICENSE)
+[![Neovim](https://img.shields.io/badge/neovim-%3E%3D0.10-blue)](#requirements)
 
 Workspace-aware navigation, search, explorer, and session policy for Neovim.
 
