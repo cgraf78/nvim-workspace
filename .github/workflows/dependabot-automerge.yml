@@ -15,4 +15,4 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    uses: cgraf78/actions/.github/workflows/dependabot-automerge.yml@3b726ff80de78ae9407dc1f609c11d951c56bd3b
+    uses: cgraf78/actions/.github/workflows/dependabot-automerge.yml@6ecbf5dafaeb9483aeeba3915321544b31572172
