@@ -2,7 +2,7 @@
 
 set -o pipefail
 
-TEST_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+TEST_ROOT="$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 TEST_TMP_BASE="${TMPDIR:-/tmp}"
 TEST_TMP_ROOT="${TEST_TMP_ROOT:-${TEST_TMP_BASE%/}/nvim-workspace-tests}"
 mkdir -p "$TEST_TMP_ROOT"

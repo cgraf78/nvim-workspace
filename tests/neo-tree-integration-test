@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-test_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+test_root=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 # Bypass HOME-dependent public launchers while preserving the managed binary.
 nvim_bin=${NVIM_WORKSPACE_TEST_NVIM_BIN:-$HOME/.local/share/neovim/neovim/bin/nvim}
 if [[ ! -x "$nvim_bin" ]]; then

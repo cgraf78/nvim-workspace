@@ -26,7 +26,8 @@ jobs:
       # lua51 packages currently both own the generic lua++.pc metadata file.
       termux-profiles: base,neovim,python
       shellcheck-inventory-path: .github/shellcheck-files.txt
-      test-command: tests/run
+      # Exercise relative fixture entry points with a caller's CDPATH set.
+      test-command: CDPATH=. tests/run
 
   actions-sync:
     name: cgraf78/actions sync
