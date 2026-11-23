@@ -137,19 +137,27 @@ persist_store=$persist_tmp/recent.json
 printf 'print("a")\n' >"$persist_a"
 printf 'print("b")\n' >"$persist_b"
 
-NVIM_WORKSPACE_RECENT_FILE="$persist_store" _nvim_lua "
+caller_store=$persist_tmp/caller-recent.json
+printf '%s\n' '{"version":1,"files":[]}' >"$caller_store"
+NVIM_WORKSPACE_RECENT_FILE="$caller_store" _nvim_lua "
+  require('nvim_workspace.core.recent')
+  vim.cmd('edit ' .. vim.fn.fnameescape('$persist_a'))
+" >/dev/null
+_assert_eq "fixture ignores caller recent store" '{"version":1,"files":[]}' "$(cat "$caller_store")"
+
+_nvim_lua "
   local recent = require('nvim_workspace.core.recent')
   vim.cmd('edit ' .. vim.fn.fnameescape('$persist_a'))
   vim.cmd('edit ' .. vim.fn.fnameescape('$persist_b'))
   vim.cmd('bdelete ' .. vim.fn.fnameescape('$persist_b'))
-" >/dev/null
+" "$persist_store" >/dev/null
 
-result=$(NVIM_WORKSPACE_RECENT_FILE="$persist_store" _nvim_lua "
+result=$(_nvim_lua "
   local recent = require('nvim_workspace.core.recent')
   vim.v.oldfiles = {'$persist_a'}
   local results, seen = recent.get()
   print(tostring(seen['$persist_b']))
-")
+" "$persist_store")
 _assert_eq "get: plugin recent keeps deleted buffers across sessions" "true" "$result"
 
 missing_persist=$persist_tmp/missing.lua
@@ -162,13 +170,13 @@ printf '%s\n' \
   '  ]' \
   '}' >"$persist_store"
 
-result=$(NVIM_WORKSPACE_RECENT_FILE="$persist_store" _nvim_lua "
+result=$(_nvim_lua "
   local recent = require('nvim_workspace.core.recent')
   vim.v.oldfiles = {}
   local results, seen = recent.get()
   print(#results)
   print(tostring(seen['$missing_persist']))
   print(tostring(seen['$persist_a']))
-")
+" "$persist_store")
 expected="$(printf '1\nnil\ntrue')"
 _assert_eq "get: plugin recent filters missing persisted files" "$expected" "$result"
