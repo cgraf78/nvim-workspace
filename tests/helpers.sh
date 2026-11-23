@@ -44,11 +44,31 @@ _realpath() {
   python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1"
 }
 
-_nvim_lua() {
+_nvim_lua() (
   local lua_path="$TEST_ROOT/lua/?.lua;$TEST_ROOT/lua/?/init.lua;$TEST_ROOT/tests/?.lua"
+  # Test snippets write observations directly to stdout, bypassing the editor
+  # message display. Only their lexical print changes; loaded modules keep
+  # Neovim's own print and logging behavior.
+  local lua_setup="
+    package.path = '$lua_path;' .. package.path
+    vim.opt.runtimepath:prepend('$TEST_ROOT')
+    local function print(...)
+      local fields = {}
+      for index = 1, select('#', ...) do
+        fields[index] = tostring(select(index, ...))
+      end
+      io.stdout:write(table.concat(fields, ' '), '\n')
+      io.stdout:flush()
+    end
+  "
+  local nvim_state
+  nvim_state=$(_tmpdir) || return
+  trap 'rm -rf -- "$nvim_state"' EXIT
+  # LSP and the native logger still open state files in headless mode.
   # An explicit MRU path takes precedence over -i NONE. Only persistence
   # fixtures may opt in by passing their own scratch file as the second arg.
-  NVIM_WORKSPACE_RECENT_FILE="${2:-}" nvim --headless --noplugin -u NONE -i NONE \
-    -c "lua package.path='$lua_path;' .. package.path; vim.opt.runtimepath:prepend('$TEST_ROOT'); $1" \
+  XDG_STATE_HOME="$nvim_state" NVIM_LOG_FILE="$nvim_state/native.log" \
+    NVIM_WORKSPACE_RECENT_FILE="${2:-}" nvim --headless --noplugin -u NONE -i NONE \
+    -c "lua $lua_setup $1" \
     -c 'qa!' 2>&1 | tr -d '\r'
-}
+)

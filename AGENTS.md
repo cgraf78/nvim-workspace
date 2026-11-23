@@ -55,6 +55,7 @@ callbacks.
 
 - `_nvim_lua` runs `nvim --headless --noplugin -u NONE -i NONE` with an
   explicit `package.path`; never load the developer's config or ShaDa.
+  Each invocation owns its Neovim state directory and native log.
 - Scratch files go under `${TMPDIR:-/tmp}/nvim-workspace-tests`
   (`_tmpdir`). The Neo-tree integration test also points HOME and the XDG
   dirs at a temporary tree.
