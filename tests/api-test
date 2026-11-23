@@ -8,6 +8,16 @@ set -o pipefail
 echo "=== public api ==="
 
 result=$(_nvim_lua '
+  vim.opt.columns = 80
+  print(string.rep("x", 80))
+  print("next", false, nil)
+  print(print ~= _G.print)
+')
+line=$(printf 'x%.0s' {1..80})
+expected=$(printf '%s\nnext false nil\ntrue' "$line")
+_assert_eq "api: Lua fixture output preserves a line at the editor width" "$expected" "$result"
+
+result=$(_nvim_lua '
   local workspace = require("nvim_workspace")
   print(type(workspace.setup))
   print(type(workspace.files))
@@ -113,6 +123,21 @@ _assert_eq "api: lsp helper falls back to get_active_clients" "$expected" "$resu
 
 result=$(grep -R -n "vim\\.lsp\\.get_clients" "$TEST_ROOT/lua" | grep -v "/lua/nvim_workspace/core/lsp.lua" || true)
 _assert_eq "api: lsp client lookup stays behind compatibility helper" "" "$result"
+
+caller=$(_tmpdir)
+caller_state="$caller/state"
+caller_log="$caller/native.log"
+result=$(XDG_STATE_HOME="$caller_state" NVIM_LOG_FILE="$caller_log" _nvim_lua '
+  local log = require("vim.lsp.log")
+  log.set_level("warn")
+  log.warn("nvim-workspace fixture initializes its LSP log")
+  print(vim.fn.filereadable(log.get_filename()) == 1)
+')
+_assert_eq "api: headless nvim writes an LSP log" "true" "$result"
+[[ ! -e "$caller_state" && ! -e "$caller_log" ]] ||
+  _fail "api: headless nvim wrote to caller-selected state or native log"
+_pass "api: headless nvim keeps LSP state and the native log inside the fixture"
+rm -rf -- "$caller"
 
 result=$(_nvim_lua '
   local workspace = require("nvim_workspace")
