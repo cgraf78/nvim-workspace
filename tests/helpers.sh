@@ -46,7 +46,9 @@ _realpath() {
 
 _nvim_lua() {
   local lua_path="$TEST_ROOT/lua/?.lua;$TEST_ROOT/lua/?/init.lua;$TEST_ROOT/tests/?.lua"
-  nvim --headless --noplugin -u NONE -i NONE \
+  # An explicit MRU path takes precedence over -i NONE. Only persistence
+  # fixtures may opt in by passing their own scratch file as the second arg.
+  NVIM_WORKSPACE_RECENT_FILE="${2:-}" nvim --headless --noplugin -u NONE -i NONE \
     -c "lua package.path='$lua_path;' .. package.path; vim.opt.runtimepath:prepend('$TEST_ROOT'); $1" \
     -c 'qa!' 2>&1 | tr -d '\r'
 }
