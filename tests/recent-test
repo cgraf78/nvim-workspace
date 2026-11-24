@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -o pipefail
+set -eo pipefail
 
 # shellcheck source=tests/helpers.sh
 . "$(dirname "$0")/helpers.sh"
@@ -69,14 +69,15 @@ echo "=== recent: get ==="
 
 tmp_a=$(_tmpdir)/a.lua
 tmp_b=$(_tmpdir)/b.lua
+_set_fixture_paths tmp_a="$tmp_a" tmp_b="$tmp_b"
 touch "$tmp_a" "$tmp_b"
 
 result=$(_nvim_lua "
   local recent = require('nvim_workspace.core.recent')
-  vim.v.oldfiles = {'$tmp_a', '$tmp_b', '/nonexistent/file.lua'}
+  vim.v.oldfiles = {fixture_paths.tmp_a, fixture_paths.tmp_b, '/nonexistent/file.lua'}
   local results, seen = recent.get()
   print(#results)
-  print(tostring(seen['$tmp_a']))
+  print(tostring(seen[fixture_paths.tmp_a]))
   print(tostring(seen['/nonexistent/file.lua']))
 ")
 expected="$(printf '2\ntrue\nnil')"
@@ -84,7 +85,7 @@ _assert_eq "get: returns existing oldfiles, filters missing" "$expected" "$resul
 
 result=$(_nvim_lua "
   local recent = require('nvim_workspace.core.recent')
-  vim.v.oldfiles = {'$tmp_a'}
+  vim.v.oldfiles = {fixture_paths.tmp_a}
   local r1 = recent.get()
   local r2 = recent.get()
   print(tostring(r1 == r2))
@@ -93,12 +94,12 @@ _assert_eq "get: second call returns cached table" "true" "$result"
 
 result=$(_nvim_lua "
   local recent = require('nvim_workspace.core.recent')
-  vim.v.oldfiles = {'$tmp_a'}
+  vim.v.oldfiles = {fixture_paths.tmp_a}
   local results, seen = recent.get()
   print(type(results))
   print(type(seen))
-  print(results[1] == '$tmp_a')
-  print(seen['$tmp_a'] == true)
+  print(results[1] == fixture_paths.tmp_a)
+  print(seen[fixture_paths.tmp_a] == true)
 ")
 expected="$(printf 'table\ntable\ntrue\ntrue')"
 _assert_eq "get: returns list and set" "$expected" "$result"
@@ -112,6 +113,7 @@ result=$(_nvim_lua '
 _assert_eq "get: empty oldfiles returns empty list" "0" "$result"
 
 cap_tmp=$(_tmpdir)
+_set_fixture_paths cap_tmp="$cap_tmp"
 for i in $(seq 1 205); do
   printf 'print("%s")\n' "$i" >"$cap_tmp/file-$i.lua"
 done
@@ -120,12 +122,12 @@ result=$(_nvim_lua "
   local recent = require('nvim_workspace.core.recent')
   vim.v.oldfiles = {}
   for i = 1, 205 do
-    vim.cmd('edit ' .. vim.fn.fnameescape('$cap_tmp/file-' .. i .. '.lua'))
+    vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.cap_tmp .. '/file-' .. i .. '.lua'))
   end
   local results, seen = recent.get()
   print(#results)
   print(results[1]:match('file%-205%.lua') ~= nil)
-  print(tostring(seen['$cap_tmp/file-1.lua']))
+  print(tostring(seen[fixture_paths.cap_tmp .. '/file-1.lua']))
 ")
 expected="$(printf '200\ntrue\nnil')"
 _assert_eq "get: session MRU is bounded for large buffer sets" "$expected" "$result"
@@ -133,6 +135,7 @@ _assert_eq "get: session MRU is bounded for large buffer sets" "$expected" "$res
 persist_tmp=$(_realpath "$(_tmpdir)")
 persist_a=$persist_tmp/a.lua
 persist_b=$persist_tmp/b.lua
+_set_fixture_paths persist_a="$persist_a" persist_b="$persist_b"
 persist_store=$persist_tmp/recent.json
 printf 'print("a")\n' >"$persist_a"
 printf 'print("b")\n' >"$persist_b"
@@ -141,42 +144,37 @@ caller_store=$persist_tmp/caller-recent.json
 printf '%s\n' '{"version":1,"files":[]}' >"$caller_store"
 NVIM_WORKSPACE_RECENT_FILE="$caller_store" _nvim_lua "
   require('nvim_workspace.core.recent')
-  vim.cmd('edit ' .. vim.fn.fnameescape('$persist_a'))
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.persist_a))
 " >/dev/null
 _assert_eq "fixture ignores caller recent store" '{"version":1,"files":[]}' "$(cat "$caller_store")"
 
 _nvim_lua "
   local recent = require('nvim_workspace.core.recent')
-  vim.cmd('edit ' .. vim.fn.fnameescape('$persist_a'))
-  vim.cmd('edit ' .. vim.fn.fnameescape('$persist_b'))
-  vim.cmd('bdelete ' .. vim.fn.fnameescape('$persist_b'))
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.persist_a))
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.persist_b))
+  vim.cmd('bdelete ' .. vim.fn.fnameescape(fixture_paths.persist_b))
 " "$persist_store" >/dev/null
 
 result=$(_nvim_lua "
   local recent = require('nvim_workspace.core.recent')
-  vim.v.oldfiles = {'$persist_a'}
+  vim.v.oldfiles = {fixture_paths.persist_a}
   local results, seen = recent.get()
-  print(tostring(seen['$persist_b']))
+  print(tostring(seen[fixture_paths.persist_b]))
 " "$persist_store")
 _assert_eq "get: plugin recent keeps deleted buffers across sessions" "true" "$result"
 
 missing_persist=$persist_tmp/missing.lua
-printf '%s\n' \
-  '{' \
-  '  "version": 1,' \
-  '  "files": [' \
-  "    \"$missing_persist\"," \
-  "    \"$persist_a\"" \
-  '  ]' \
-  '}' >"$persist_store"
+_set_fixture_paths missing_persist="$missing_persist"
+python3 -c 'import json, sys; print(json.dumps({"version": 1, "files": sys.argv[1:]}))' \
+  "$missing_persist" "$persist_a" >"$persist_store"
 
 result=$(_nvim_lua "
   local recent = require('nvim_workspace.core.recent')
   vim.v.oldfiles = {}
   local results, seen = recent.get()
   print(#results)
-  print(tostring(seen['$missing_persist']))
-  print(tostring(seen['$persist_a']))
+  print(tostring(seen[fixture_paths.missing_persist]))
+  print(tostring(seen[fixture_paths.persist_a]))
 " "$persist_store")
 expected="$(printf '1\nnil\ntrue')"
 _assert_eq "get: plugin recent filters missing persisted files" "$expected" "$result"

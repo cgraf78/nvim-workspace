@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -o pipefail
+set -eo pipefail
 
 # shellcheck source=tests/helpers.sh
 . "$(dirname "$0")/helpers.sh"
@@ -10,22 +10,23 @@ echo "=== lazygit: workspace-aware options ==="
 tmp=$(_tmpdir)
 home="$tmp/home"
 project="$tmp/project"
+_set_fixture_paths home="$home" project="$project"
 project_real=$(_realpath "$project")
 mkdir -p "$home/.config/nvim" "$project/src" "$project/.git"
 touch "$home/.bashrc" "$home/.config/nvim/init.lua" "$home/untracked"
 touch "$project/src/main.lua"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$home'
+  vim.env.HOME = fixture_paths.home
   package.loaded['nvim_workspace.core.workspace'] = nil
   local lazygit = require('nvim_workspace.lazygit')
-  print(tostring(lazygit.opts_for_path('$home/.bashrc')))
+  print(tostring(lazygit.opts_for_path(fixture_paths.home .. '/.bashrc')))
 ")
 expected="nil"
 _assert_eq "lazygit: generic default has no special repo args" "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$home'
+  vim.env.HOME = fixture_paths.home
   require('nvim_workspace').setup({
     lazygit = {
       opts_for_path = function(path, ctx)
@@ -43,13 +44,13 @@ result=$(_nvim_lua "
   })
   package.loaded['nvim_workspace.core.workspace'] = nil
   local lazygit = require('nvim_workspace.lazygit')
-  local dot_opts = lazygit.opts_for_path('$home/.bashrc')
+  local dot_opts = lazygit.opts_for_path(fixture_paths.home .. '/.bashrc')
   print(dot_opts.cwd)
   print(table.concat(dot_opts.args, ' '))
-  local opts = lazygit.opts_for_path('$home/.config/nvim/init.lua')
+  local opts = lazygit.opts_for_path(fixture_paths.home .. '/.config/nvim/init.lua')
   print(opts.cwd)
   print(table.concat(opts.args, ' '))
-  print(tostring(lazygit.opts_for_path('$home/untracked')))
+  print(tostring(lazygit.opts_for_path(fixture_paths.home .. '/untracked')))
 ")
 expected="$(printf 'path=%s\nrel=.bashrc\n%s\n--repo-root %s --rel .bashrc\npath=%s\nrel=.config/nvim/init.lua\n%s\n--repo-root %s --rel .config/nvim/init.lua\npath=%s\nrel=untracked\nnil' \
   "$home/.bashrc" "$home" "$home" \
@@ -59,7 +60,7 @@ _assert_eq "lazygit: host callback can return special repo args" \
   "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$home'
+  vim.env.HOME = fixture_paths.home
   require('nvim_workspace').setup({
     lazygit = {
       opts_for_path = function()
@@ -69,16 +70,16 @@ result=$(_nvim_lua "
   })
   package.loaded['nvim_workspace.core.workspace'] = nil
   local lazygit = require('nvim_workspace.lazygit')
-  print(tostring(lazygit.opts_for_path('$home/.bashrc')))
+  print(tostring(lazygit.opts_for_path(fixture_paths.home .. '/.bashrc')))
 ")
 expected="nil"
 _assert_eq "lazygit: host callback failures fail closed" "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$home'
+  vim.env.HOME = fixture_paths.home
   package.loaded['nvim_workspace.core.workspace'] = nil
   local lazygit = require('nvim_workspace.lazygit')
-  vim.api.nvim_command('edit $project/src/main.lua')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.project .. '/src/main.lua'))
   print(lazygit.cwd_for_context())
   local opts = lazygit.opts()
   print(opts.cwd)
@@ -88,10 +89,10 @@ expected="$(printf '%s\n%s\nnil' "$project_real" "$project_real")"
 _assert_eq "lazygit: normal files use the detected VCS root" "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$home'
+  vim.env.HOME = fixture_paths.home
   package.loaded['nvim_workspace.core.workspace'] = nil
   local lazygit = require('nvim_workspace.lazygit')
-  vim.api.nvim_command('cd $project/src')
+  vim.cmd('cd ' .. vim.fn.fnameescape(fixture_paths.project .. '/src'))
   vim.api.nvim_command('new')
   vim.bo.buftype = 'nofile'
   local opts = lazygit.opts()
@@ -102,7 +103,7 @@ expected="$(printf '%s\nnil' "$project_real")"
 _assert_eq "lazygit: special buffers fall back to cwd context" "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$home'
+  vim.env.HOME = fixture_paths.home
   require('nvim_workspace').setup({
     lazygit = {
       opts_for_path = function(_, ctx)
@@ -115,7 +116,7 @@ result=$(_nvim_lua "
   })
   package.loaded['nvim_workspace.core.workspace'] = nil
   local lazygit = require('nvim_workspace.lazygit')
-  vim.api.nvim_command('edit $home/.bashrc')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.home .. '/.bashrc'))
   local called = nil
   local snacks = {
     lazygit = function(opts)

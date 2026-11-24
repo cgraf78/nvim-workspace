@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -o pipefail
+set -eo pipefail
 
 # shellcheck source=tests/helpers.sh
 . "$(dirname "$0")/helpers.sh"
@@ -11,6 +11,7 @@ tmp=$(_tmpdir)
 home="$tmp/home"
 project="$tmp/project"
 overlay="$home/.workspace-work"
+_set_fixture_paths home="$home" project="$project" overlay="$overlay"
 mkdir -p "$home/.config/shell/lib" "$home/.local/bin"
 mkdir -p "$project/scripts" "$project/.git" "$overlay/home/.config/shell/lib" "$overlay/.git"
 touch "$home/.bashrc" "$home/.config/shell/lib/common.bash"
@@ -19,12 +20,12 @@ touch "$project/scripts/run.sh" "$overlay/home/.config/shell/lib/overlay.bash"
 overlay_real=$(_realpath "$overlay")
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$home'
+  vim.env.HOME = fixture_paths.home
   package.loaded['nvim_workspace.core.workspace'] = nil
   local shell = require('nvim_workspace.shell')
-  print(shell.root_for('$project/scripts/run.sh'))
-  print(shell.glob_for('$project'))
-  local paths, globs, root = shell.search_paths_for('$project/scripts/run.sh')
+  print(shell.root_for(fixture_paths.project .. '/scripts/run.sh'))
+  print(shell.glob_for(fixture_paths.project))
+  local paths, globs, root = shell.search_paths_for(fixture_paths.project .. '/scripts/run.sh')
   print(root)
   print(table.concat(paths, ','))
   print(table.concat(globs or {}, ','))
@@ -34,65 +35,65 @@ expected="$(printf '%s\n**/*@(.sh|.inc|.bash|.zsh|.command)\n%s\n%s\n*.sh,*.inc,
 _assert_eq "shell: normal repos use VCS root and recursive globs" "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$home'
+  vim.env.HOME = fixture_paths.home
   package.loaded['nvim_workspace.core.workspace'] = nil
   require('nvim_workspace').setup({
     shell = { shell_glob = '*.bash' },
   })
   local shell = require('nvim_workspace.shell')
-  print(shell.glob_for('$project'))
+  print(shell.glob_for(fixture_paths.project))
 ")
 expected="**/*.bash"
 _assert_eq "shell: shell_glob customizes the derived recursive glob" "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$home'
+  vim.env.HOME = fixture_paths.home
   package.loaded['nvim_workspace.core.workspace'] = nil
   local workspace = require('nvim_workspace')
   local shell = require('nvim_workspace.shell')
   workspace.setup({
     shell = { shell_glob = '*.bash' },
   })
-  print(shell.glob_for('$project'))
+  print(shell.glob_for(fixture_paths.project))
   workspace.setup({
     shell = { shell_glob = '*.zsh' },
   })
-  print(shell.glob_for('$project'))
+  print(shell.glob_for(fixture_paths.project))
 ")
 expected="$(printf '**/*.bash\n**/*.zsh')"
 _assert_eq "shell: cached policy refreshes after setup changes" "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$home'
+  vim.env.HOME = fixture_paths.home
   package.loaded['nvim_workspace.core.workspace'] = nil
   require('nvim_workspace').setup({
     workspace = {
       home_workspace_detector = function()
-        return '$home'
+        return fixture_paths.home
       end,
     },
   })
   local shell = require('nvim_workspace.shell')
-  print(shell.root_for('$home/.bashrc'))
-  print(shell.glob_for('$home'))
-  local paths, globs, root = shell.search_paths_for('$home/.bashrc')
+  print(shell.root_for(fixture_paths.home .. '/.bashrc'))
+  print(shell.glob_for(fixture_paths.home))
+  local paths, globs, root = shell.search_paths_for(fixture_paths.home .. '/.bashrc')
   print(root)
   print(table.concat(paths, ','))
   print(tostring(globs))
-  print(tostring(shell.is_home_shell_path('$home/.bashrc')))
-  print(tostring(shell.is_home_shell_path('$home/random.sh')))
+  print(tostring(shell.is_home_shell_path(fixture_paths.home .. '/.bashrc')))
+  print(tostring(shell.is_home_shell_path(fixture_paths.home .. '/random.sh')))
 ")
 expected="$(printf '%s\n{.bashrc,.bash_profile,.profile,.zshenv,.zprofile,.zshrc}\n%s\n%s\nnil\ntrue\nfalse' \
   "$home" "$home" "$home/.bashrc")"
 _assert_eq "shell: default HOME policy is bounded to startup files" "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$home'
+  vim.env.HOME = fixture_paths.home
   package.loaded['nvim_workspace.core.workspace'] = nil
   require('nvim_workspace').setup({
     workspace = {
       home_workspace_detector = function()
-        return '$home'
+        return fixture_paths.home
       end,
     },
     shell = {
@@ -105,12 +106,12 @@ result=$(_nvim_lua "
     },
   })
   local shell = require('nvim_workspace.shell')
-  print(tostring(shell.is_home_shell_path('$home/.local/bin/plain-tool')))
-  print(shell.root_for('$home/.local/bin/plain-tool'))
-  print(shell.root_for('$home/.local/bin/agent-hook-test'))
-  print(shell.root_for('$home/.config/shell/lib/common.bash'))
-  print(shell.glob_for('$home'))
-  local paths = shell.search_paths_for('$home/.local/bin/agent-hook-test')
+  print(tostring(shell.is_home_shell_path(fixture_paths.home .. '/.local/bin/plain-tool')))
+  print(shell.root_for(fixture_paths.home .. '/.local/bin/plain-tool'))
+  print(shell.root_for(fixture_paths.home .. '/.local/bin/agent-hook-test'))
+  print(shell.root_for(fixture_paths.home .. '/.config/shell/lib/common.bash'))
+  print(shell.glob_for(fixture_paths.home))
+  local paths = shell.search_paths_for(fixture_paths.home .. '/.local/bin/agent-hook-test')
   print(table.concat(paths, ','))
 ")
 expected="$(printf 'true\n%s\n%s\n%s\n{.bashrc,.bash_profile,.profile,.zshenv,.zprofile,.zshrc,.local/bin/agent-hook-*,.config/shell/**/*@(.sh|.bash)}\n%s,%s,%s' \
@@ -119,7 +120,7 @@ _assert_eq "shell: setup recognizes direct HOME paths without scanning all HOME"
   "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$home'
+  vim.env.HOME = fixture_paths.home
   package.loaded['nvim_workspace.core.workspace'] = nil
   require('nvim_workspace').setup({
     shell = {
@@ -130,9 +131,9 @@ result=$(_nvim_lua "
     },
   })
   local shell = require('nvim_workspace.shell')
-  print(shell.root_for('$overlay/home/.config/shell/lib/overlay.bash'))
-  print(shell.glob_for('$overlay'))
-  local paths, globs, root = shell.search_paths_for('$overlay/home/.config/shell/lib/overlay.bash')
+  print(shell.root_for(fixture_paths.overlay .. '/home/.config/shell/lib/overlay.bash'))
+  print(shell.glob_for(fixture_paths.overlay))
+  local paths, globs, root = shell.search_paths_for(fixture_paths.overlay .. '/home/.config/shell/lib/overlay.bash')
   print(root)
   print(table.concat(paths, ','))
   print(tostring(globs))
@@ -159,10 +160,10 @@ expected="$(printf 'nil\nnil')"
 _assert_eq "shell: root_dir ignores empty and URI buffers" "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$home'
+  vim.env.HOME = fixture_paths.home
   package.loaded['nvim_workspace.core.workspace'] = nil
   local shell = require('nvim_workspace.shell')
-  local config = { root_dir = '$home' }
+  local config = { root_dir = fixture_paths.home }
   shell.before_init(nil, config)
   print(tostring(config.settings.bashIde.includeAllWorkspaceSymbols))
   print(config.settings.bashIde.globPattern)
