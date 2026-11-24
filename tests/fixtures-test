@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# shellcheck source=tests/helpers.sh
+. "$(dirname "$0")/helpers.sh"
+
+scratch=$(_tmpdir)
+trap 'rm -rf -- "$scratch"' EXIT
+
+_lua_error() {
+  local result
+  if result=$(_nvim_lua 'error("intentional fixture error")' 2>&1); then
+    _fail "fixtures: a Lua error returned success"
+  fi
+  _assert_contains "fixtures: Lua errors keep their diagnostic" \
+    "intentional fixture error" "$result"
+}
+
+_runtime_socket() {
+  local runtime_root=$1 caller_runtime="$scratch/caller-runtime" fixture_root socket
+  mkdir -p "$caller_runtime" "$runtime_root" || _fail "fixtures: could not create the runtime trees"
+  socket=$(TEST_TMP_ROOT="$runtime_root" XDG_RUNTIME_DIR="$caller_runtime" _nvim_lua '
+    local socket = vim.v.servername
+    assert(vim.fn.getftype(socket) == "socket", "Neovim has no runtime socket: " .. socket)
+    print(vim.fn.resolve(socket))
+  ') || _fail "fixtures: could not inspect the Neovim runtime socket"
+  # macOS can expose the same temp tree as both /var and /private/var.
+  socket=$(_realpath "$socket") || _fail "fixtures: could not resolve the socket path"
+  caller_runtime=$(_realpath "$caller_runtime") || _fail "fixtures: could not resolve the caller runtime"
+  fixture_root=$(_realpath "$runtime_root") || _fail "fixtures: could not resolve the fixture root"
+  [[ "$socket" != "$caller_runtime"/* ]] || _fail "fixtures: Neovim used the caller runtime socket: $socket"
+  [[ "$socket" == "$fixture_root"/* ]] ||
+    _fail "fixtures: Neovim runtime socket is outside the fixture tree: $socket"
+  [[ ! -e "${socket%/*}" ]] || _fail "fixtures: Neovim runtime directory was left behind"
+  _pass "fixtures: Neovim uses a private runtime socket and cleans its directory ($2)"
+}
+
+_quoted_checkout() {
+  local checkout="$scratch/test's checkout" result
+  mkdir "$checkout" || _fail "fixtures: could not create a quoted checkout"
+  cp -R "$TEST_ROOT/examples" "$TEST_ROOT/lua" "$TEST_ROOT/tests" "$checkout" ||
+    _fail "fixtures: could not copy the example suite"
+  result=$(CDPATH='' cd "$checkout" && tests/examples-test 2>&1) ||
+    _fail "fixtures: examples failed in a quoted checkout: $result"
+  _assert_contains "fixtures: examples load from a quoted checkout" \
+    "ok: examples: file source streams, completes, and honors cancellation" "$result"
+}
+
+_quoted_scratch() {
+  local root="$scratch/a'b" result
+  result=$(TEST_TMP_ROOT="$root" "$TEST_ROOT/tests/shell-test" 2>&1) ||
+    _fail "fixtures: shell tests failed in a quoted scratch tree: $result"
+  _assert_contains "fixtures: shell tests use paths in a quoted scratch tree" \
+    "ok: shell: before_init configures bashls with bounded glob policy" "$result"
+  result=$(TEST_TMP_ROOT="$root" "$TEST_ROOT/tests/workspace-test" 2>&1) ||
+    _fail "fixtures: workspace tests failed in a quoted scratch tree: $result"
+  _assert_contains "fixtures: workspace tests use paths in a quoted scratch tree" \
+    "ok: current_buffer_dir: prefers visible HOME aliases" "$result"
+}
+
+_interrupted_editor() (
+  local signal=$1 expected=$2 editor='' helper
+  local bin="$scratch/editor-bin-$1" ready="$scratch/editor-ready-$1"
+  local launcher='' deadline status=0
+  trap '[[ -z "$editor" ]] || kill "$editor" 2>/dev/null || :;
+    [[ -z "$launcher" ]] || wait "$launcher" 2>/dev/null || :' EXIT
+  mkdir "$bin" || _fail "fixtures: could not create the editor mock directory"
+  cat >"$bin/nvim" <<'SH' || _fail "fixtures: could not create the editor mock"
+#!/usr/bin/env bash
+printf '%s %s\n' "$$" "$PPID" >"$NVIM_FIXTURE_READY.tmp"
+mv "$NVIM_FIXTURE_READY.tmp" "$NVIM_FIXTURE_READY"
+exec sleep 10
+SH
+  chmod +x "$bin/nvim" || _fail "fixtures: could not make the editor mock executable"
+  PATH="$bin:$PATH" NVIM_FIXTURE_READY="$ready" _nvim_lua 'print("unused")' \
+    >"$scratch/interrupted-editor-output" 2>&1 &
+  launcher=$!
+  deadline=$((SECONDS + 5))
+  until [[ -s "$ready" ]]; do
+    ((SECONDS < deadline)) || _fail "fixtures: editor did not start before the deadline"
+    sleep 0.02
+  done
+  read -r editor helper <"$ready" || _fail "fixtures: could not read editor process identities"
+  kill "-$signal" "$helper" || _fail "fixtures: could not signal the Neovim helper"
+  wait "$launcher" || status=$?
+  launcher=
+  _assert_eq "fixtures: helper preserves the $signal status" "$expected" "$status"
+  if kill -0 "$editor" 2>/dev/null; then
+    _fail "fixtures: editor stayed alive after its helper was terminated: $editor"
+  fi
+  editor=
+  _pass "fixtures: helper reaps its editor on $signal"
+)
+
+_interrupted_socket_setup() (
+  local root bin="$scratch/setup-bin"
+  local ready="$scratch/setup-ready" release="$scratch/setup-release"
+  local real_ln helper alias='' launcher='' deadline status=0
+  trap ': >"$release"; [[ -z "$launcher" ]] || wait "$launcher" 2>/dev/null || :;
+    [[ -z "$alias" ]] || rm -rf -- "$alias"' EXIT
+  root="$scratch/$(printf '%0110d' 1)"
+  real_ln=$(type -P ln) || _fail "fixtures: could not resolve ln"
+  mkdir -p "$root" "$bin" || _fail "fixtures: could not set up long socket fixture"
+  cat >"$bin/ln" <<'SH' || _fail "fixtures: could not create the alias mock"
+#!/usr/bin/env bash
+printf '%s\n' "$PPID" "${3%/r}" >"$NVIM_FIXTURE_READY.tmp"
+mv "$NVIM_FIXTURE_READY.tmp" "$NVIM_FIXTURE_READY"
+deadline=$((SECONDS + 8))
+until [[ -e "$NVIM_FIXTURE_RELEASE" ]]; do
+  ((SECONDS < deadline)) || exit 1
+  sleep 0.02
+done
+exec "$NVIM_FIXTURE_REAL_LN" "$@"
+SH
+  chmod +x "$bin/ln" || _fail "fixtures: could not make the alias mock executable"
+  PATH="$bin:$PATH" TEST_TMP_ROOT="$root" NVIM_FIXTURE_REAL_LN="$real_ln" \
+    NVIM_FIXTURE_READY="$ready" NVIM_FIXTURE_RELEASE="$release" _nvim_lua 'print("unused")' \
+    >"$scratch/interrupted-setup-output" 2>&1 &
+  launcher=$!
+  deadline=$((SECONDS + 5))
+  until [[ -s "$ready" ]]; do
+    ((SECONDS < deadline)) || _fail "fixtures: socket setup did not start before the deadline"
+    sleep 0.02
+  done
+  { IFS= read -r helper && IFS= read -r alias; } <"$ready" ||
+    _fail "fixtures: could not read the setup process and alias directory"
+  kill -TERM "$helper" || _fail "fixtures: could not signal socket setup"
+  : >"$release" || _fail "fixtures: could not release socket setup"
+  wait "$launcher" || status=$?
+  launcher=
+  _assert_eq "fixtures: interrupted socket setup preserves TERM status" 143 "$status"
+  [[ ! -e "$alias" ]] || _fail "fixtures: interrupted socket setup left its private alias"
+  _pass "fixtures: interrupted socket setup removes its private alias"
+)
+
+_source_scan_error() {
+  local bin="$scratch/bin" result
+  mkdir "$bin" || _fail "fixtures: could not create the source scan mock directory"
+  cat >"$bin/grep" <<'SH' || _fail "fixtures: could not create the source scan mock"
+#!/bin/sh
+printf '%s\n' 'intentional fixture grep error' >&2
+exit 2
+SH
+  chmod +x "$bin/grep" || _fail "fixtures: could not make the source scan mock executable"
+  if result=$(PATH="$bin:$PATH" "$TEST_ROOT/tests/api-test" 2>&1); then
+    _fail "fixtures: API tests passed after a source scan error"
+  fi
+  _assert_contains "fixtures: API scan failure keeps the grep diagnostic" \
+    "intentional fixture grep error" "$result"
+  _assert_contains "fixtures: API scan failure identifies the check" \
+    "api: uv access stays behind compatibility helper: source scan failed" "$result"
+}
+
+status=0
+(_lua_error) || status=1
+(_runtime_socket "$TEST_TMP_ROOT" standard) || status=1
+(_runtime_socket "$scratch/$(printf '%0110d' 0)" 'long path') || status=1
+(_quoted_checkout) || status=1
+(_quoted_scratch) || status=1
+_interrupted_editor TERM 143 || status=1
+_interrupted_editor HUP 129 || status=1
+_interrupted_socket_setup || status=1
+(_source_scan_error) || status=1
+exit "$status"

@@ -2,6 +2,7 @@
 
 set -euo pipefail
 
+tests/fixtures-test
 tests/api-test
 tests/examples-test
 tests/recent-test

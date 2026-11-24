@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 
-set -o pipefail
+set -eo pipefail
 
 # shellcheck source=tests/helpers.sh
 . "$(dirname "$0")/helpers.sh"
 
 tmp=$(_tmpdir)
+_set_fixture_paths tmp="$tmp"
 mkdir -p "$tmp/project/src" "$tmp/project/.hg/origbackups" "$tmp/project/.config"
 mkdir -p "$tmp/project-other" "$tmp/home" "$tmp/data/project/src"
 touch "$tmp/project/src/file.lua" "$tmp/project/.hg/origbackups/file.lua"
@@ -27,11 +28,11 @@ _assert_eq "scope: exposes picker helpers without owning roots" "$expected" "$re
 result=$(_nvim_lua "
   local scope = require('nvim_workspace.picker.scope')
   local filtered, seen = scope.filter_paths({
-    '$tmp/data/project/src/file.lua',
-  }, '$tmp/home/project')
+    fixture_paths.tmp .. '/data/project/src/file.lua',
+  }, fixture_paths.tmp .. '/home/project')
   print(filtered[1])
-  print(tostring(seen['$tmp/home/project/src/file.lua']))
-  print(tostring(seen['$tmp/data/project/src/file.lua']))
+  print(tostring(seen[fixture_paths.tmp .. '/home/project/src/file.lua']))
+  print(tostring(seen[fixture_paths.tmp .. '/data/project/src/file.lua']))
 ")
 expected="$(printf '%s\ntrue\nnil' "$tmp/home/project/src/file.lua")"
 _assert_eq "filter_paths: returns visible paths, not canonical aliases" "$expected" "$result"
@@ -65,13 +66,13 @@ _assert_eq "search root policy: default searches home without repo anchoring" "$
 
 result=$(_nvim_lua "
   local scope = require('nvim_workspace.picker.scope')
-  local results = { '$tmp/project/src/existing.lua:3:1:old' }
-  local seen = { ['$tmp/project/src/existing.lua:3:'] = true }
-  local added = scope.add_vimgrep_lines(results, '$tmp/project', {
-    '$tmp/project/src/new.lua:10:3:hit',
-    '$tmp/project/src/new.lua:10:5:duplicate same line',
-    '$tmp/project/.hg/origbackups/file.lua:4:1:hidden',
-    '$tmp/project-other/file.lua:5:1:outside',
+  local results = { fixture_paths.tmp .. '/project/src/existing.lua:3:1:old' }
+  local seen = { [fixture_paths.tmp .. '/project/src/existing.lua:3:'] = true }
+  local added = scope.add_vimgrep_lines(results, fixture_paths.tmp .. '/project', {
+    fixture_paths.tmp .. '/project/src/new.lua:10:3:hit',
+    fixture_paths.tmp .. '/project/src/new.lua:10:5:duplicate same line',
+    fixture_paths.tmp .. '/project/.hg/origbackups/file.lua:4:1:hidden',
+    fixture_paths.tmp .. '/project-other/file.lua:5:1:outside',
     '',
   }, seen)
   print(added)
@@ -501,10 +502,10 @@ result=$(_nvim_lua "
   _G.in_large_repo = function(path, opts)
     return opts ~= nil
       and opts.search_root == true
-      and path == workspace.canonical('$tmp/project')
+      and path == workspace.canonical(fixture_paths.tmp .. '/project')
   end
-  print(tostring(scope.is_large_search_root('$tmp/project')))
-  print(tostring(scope.is_large_search_root('$tmp/project/src')))
+  print(tostring(scope.is_large_search_root(fixture_paths.tmp .. '/project')))
+  print(tostring(scope.is_large_search_root(fixture_paths.tmp .. '/project/src')))
 ")
 expected="$(printf 'true\nfalse')"
 _assert_eq "large roots: delegates to existing in_large_repo policy" "$expected" "$result"
@@ -512,17 +513,17 @@ _assert_eq "large roots: delegates to existing in_large_repo policy" "$expected"
 result=$(_nvim_lua "
   local scope = require('nvim_workspace.picker.scope')
   local filtered, seen = scope.filter_paths({
-    '$tmp/project/src/file.lua',
-    '$tmp/project/.config/app.lua',
-    '$tmp/project/.hg/origbackups/file.lua',
-    '$tmp/project-other/file.lua',
-    '$tmp/project/src/file.lua',
-  }, '$tmp/project')
+    fixture_paths.tmp .. '/project/src/file.lua',
+    fixture_paths.tmp .. '/project/.config/app.lua',
+    fixture_paths.tmp .. '/project/.hg/origbackups/file.lua',
+    fixture_paths.tmp .. '/project-other/file.lua',
+    fixture_paths.tmp .. '/project/src/file.lua',
+  }, fixture_paths.tmp .. '/project')
   print(#filtered)
   print(table.concat(filtered, '\n'))
-  print(tostring(seen['$tmp/project/src/file.lua']))
-  print(tostring(seen['$tmp/project/.hg/origbackups/file.lua']))
-  print(tostring(seen['$tmp/project-other/file.lua']))
+  print(tostring(seen[fixture_paths.tmp .. '/project/src/file.lua']))
+  print(tostring(seen[fixture_paths.tmp .. '/project/.hg/origbackups/file.lua']))
+  print(tostring(seen[fixture_paths.tmp .. '/project-other/file.lua']))
 ")
 expected="$(printf '2\n%s\n%s\ntrue\nnil\nnil' \
   "$tmp/project/src/file.lua" \
@@ -531,8 +532,8 @@ _assert_eq "filter_paths: filters scoped paths and VCS metadata" "$expected" "$r
 
 result=$(_nvim_lua "
   local scope = require('nvim_workspace.picker.scope')
-  print(tostring(scope.is_searchable_path('$tmp/project/.config/app.lua')))
-  print(tostring(scope.is_searchable_path('$tmp/project/.hg/origbackups/file.lua')))
+  print(tostring(scope.is_searchable_path(fixture_paths.tmp .. '/project/.config/app.lua')))
+  print(tostring(scope.is_searchable_path(fixture_paths.tmp .. '/project/.hg/origbackups/file.lua')))
 ")
 expected="$(printf 'true\nfalse')"
 _assert_eq "searchable_path: excludes VCS metadata but keeps dotfiles" "$expected" "$result"
@@ -548,12 +549,12 @@ _assert_eq "vimgrep_path: extracts file from ripgrep lines" "$expected" "$result
 result=$(_nvim_lua "
   local scope = require('nvim_workspace.picker.scope')
   print(scope.visible_vimgrep_line(
-    '$tmp/home/project',
-    '$tmp/data/project/src/file.lua:10:3:hit'
+    fixture_paths.tmp .. '/home/project',
+    fixture_paths.tmp .. '/data/project/src/file.lua:10:3:hit'
   ))
   print(tostring(scope.visible_vimgrep_line(
-    '$tmp/home/project',
-    '$tmp/project-other/file.lua:10:3:hit'
+    fixture_paths.tmp .. '/home/project',
+    fixture_paths.tmp .. '/project-other/file.lua:10:3:hit'
   )))
 ")
 expected="$(printf '%s\nnil' "$tmp/home/project/src/file.lua:10:3:hit")"
@@ -785,11 +786,16 @@ printf '%s\n' "$$" >"${FD_PID_FILE:?}"
 exec sleep 5
 EOF
 chmod +x "$tmp/slow-fd"
-if [[ "$(_nvim_lua 'print(type(vim.system))')" == "function" ]]; then
+nvim_system=$(_nvim_lua 'print(type(vim.system))')
+case $nvim_system in
+  function | nil) ;;
+  *) _fail "picker: unexpected vim.system probe result: $nvim_system" ;;
+esac
+if [[ "$nvim_system" == "function" ]]; then
   result=$(FD_PID_FILE="$tmp/fd.pid" _nvim_lua "
     local files = require('nvim_workspace.picker.files')
     local result
-    files.run_fd({ '$tmp/slow-fd' }, vim.env.HOME, function(completed)
+    files.run_fd({ fixture_paths.tmp .. '/slow-fd' }, vim.env.HOME, function(completed)
       result = completed
     end)
     local ready = vim.wait(3000, function()
@@ -820,7 +826,7 @@ if command -v rg >/dev/null 2>&1; then
     local args = grep.recent_rg_args(
       { 'rg', '--vimgrep', '--fixed-strings' },
       'search visibility:',
-      { '$PWD/tests/picker-test' }
+      { test_root .. '/tests/picker-test' }
     )
     local lines = vim.fn.systemlist(args)
     print(vim.v.shell_error)
@@ -861,11 +867,11 @@ if command -v rg >/dev/null 2>&1; then
     local args = grep.recent_rg_args(
       { 'rg', '--vimgrep', '--fixed-strings', '--hidden', '--no-ignore-vcs' },
       'recent-policy-needle',
-      { '$tmp/recent-ignore/ignored.lua' }
+      { fixture_paths.tmp .. '/recent-ignore/ignored.lua' }
     )
     local exact = vim.fn.systemlist(args)
     local discovered = vim.fn.systemlist({
-      'rg', '--files', '--hidden', '--no-ignore-vcs', '$tmp/recent-ignore'
+      'rg', '--files', '--hidden', '--no-ignore-vcs', fixture_paths.tmp .. '/recent-ignore'
     })
     local found_ignored = false
     for _, path in ipairs(discovered) do
@@ -1167,11 +1173,11 @@ esac
 EOF
 chmod +x "$tmp/stream-rg"
 
-if [[ "$(_nvim_lua 'print(type(vim.system))')" == "function" ]]; then
+if [[ "$nvim_system" == "function" ]]; then
   result=$(RG_CAP_PID_FILE="$tmp/cap.pid" _nvim_lua "
   local grep = require('nvim_workspace.picker.grep')
   local lines
-  grep.run_root_rg({ '$tmp/stream-rg', 'cap' }, function(found)
+  grep.run_root_rg({ fixture_paths.tmp .. '/stream-rg', 'cap' }, function(found)
     lines = found
   end)
   local ready = vim.wait(2000, function()
@@ -1201,7 +1207,7 @@ if [[ "$(_nvim_lua 'print(type(vim.system))')" == "function" ]]; then
 
   local function start(mode)
     local my_generation = generation
-    return grep.run_root_rg({ '$tmp/stream-rg', mode }, function(lines)
+    return grep.run_root_rg({ fixture_paths.tmp .. '/stream-rg', mode }, function(lines)
       if my_generation == generation then
         visible = lines
       end
@@ -1210,7 +1216,7 @@ if [[ "$(_nvim_lua 'print(type(vim.system))')" == "function" ]]; then
 
   local first = start('first')
   local started = vim.wait(1000, function()
-    return uv.fs_stat('$tmp/cancel.pid') ~= nil
+    return uv.fs_stat(fixture_paths.tmp .. '/cancel.pid') ~= nil
   end)
   generation = generation + 1
   scope.cancel_handle(first)

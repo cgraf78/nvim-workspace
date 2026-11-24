@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -o pipefail
+set -eo pipefail
 
 # shellcheck source=tests/helpers.sh
 . "$(dirname "$0")/helpers.sh"
@@ -11,6 +11,7 @@ tmp=$(_tmpdir)
 mkdir -p "$tmp/home"
 
 file="$tmp/session.lua"
+_set_fixture_paths file="$file"
 for i in $(seq 1 100); do
   printf 'print("line %s")\n' "$i"
 done >"$file"
@@ -28,7 +29,7 @@ result=$(_nvim_lua "
     end,
   })
 
-  vim.cmd('edit ' .. vim.fn.fnameescape('$file'))
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.file))
   vim.bo.filetype = ''
   vim.api.nvim_buf_set_mark(0, '\"', 7, 0, {})
   vim.api.nvim_win_set_cursor(0, {80, 0})
@@ -45,18 +46,19 @@ _assert_eq "session: filetype refresh keeps session cursor without reopening" \
   "$expected" "$result"
 
 missing_file="$tmp/deleted.lua"
+_set_fixture_paths missing_file="$missing_file"
 result=$(_nvim_lua "
   local restore = require('nvim_workspace.session')
   restore.load_current({
     load = function()
-      vim.cmd('badd ' .. vim.fn.fnameescape('$missing_file'))
-      vim.cmd('argadd ' .. vim.fn.fnameescape('$missing_file'))
+      vim.cmd('badd ' .. vim.fn.fnameescape(fixture_paths.missing_file))
+      vim.cmd('argadd ' .. vim.fn.fnameescape(fixture_paths.missing_file))
     end,
   })
 
   vim.wait(1000, function()
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-      if vim.api.nvim_buf_get_name(buf) == '$missing_file' then
+      if vim.api.nvim_buf_get_name(buf) == fixture_paths.missing_file then
         return false
       end
     end
@@ -65,7 +67,7 @@ result=$(_nvim_lua "
 
   local found = false
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.api.nvim_buf_get_name(buf) == '$missing_file' then
+    if vim.api.nvim_buf_get_name(buf) == fixture_paths.missing_file then
       found = true
     end
   end
@@ -77,10 +79,11 @@ _assert_eq "session: load_current clears arglist and prunes missing buffers" \
   "$expected" "$result"
 
 existing_file="$tmp/existing.lua"
+_set_fixture_paths existing_file="$existing_file"
 printf '%s\n' 'print("existing")' >"$existing_file"
 result=$(_nvim_lua "
   local restore = require('nvim_workspace.session')
-  local buf = vim.fn.bufadd('$existing_file')
+  local buf = vim.fn.bufadd(fixture_paths.existing_file)
   restore.delete_missing_buffers()
   print(tostring(vim.api.nvim_buf_is_valid(buf)))
 ")
@@ -107,14 +110,16 @@ _assert_eq "session: missing-buffer repair preserves URI-named normal buffers" "
 save_tmp=$(_tmpdir)
 mkdir -p "$save_tmp/home" "$save_tmp/project/src" "$save_tmp/project/.git"
 save_file="$save_tmp/project/src/session.lua"
+_set_fixture_paths save_file="$save_file"
 printf '%s\n' 'print("session")' >"$save_file"
 project_root=$(_realpath "$save_tmp/project")
 home_root=$(_realpath "$save_tmp/home")
+_set_fixture_paths home_root="$home_root"
 
 result=$(_nvim_lua "
   local restore = require('nvim_workspace.session')
-  vim.cmd('cd ' .. vim.fn.fnameescape('$home_root'))
-  vim.cmd('edit ' .. vim.fn.fnameescape('$save_file'))
+  vim.cmd('cd ' .. vim.fn.fnameescape(fixture_paths.home_root))
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.save_file))
 
   local saves = {}
   restore.save_current({
@@ -136,12 +141,14 @@ home_save_file="$home_save_tmp/home/project/src/session.lua"
 printf '%s\n' 'print("home")' >"$home_save_file"
 home_save_home=$(_realpath "$home_save_tmp/home")
 home_save_project=$(_realpath "$home_save_tmp/home/project")
+_set_fixture_paths home_save_file="$home_save_file" home_save_home="$home_save_home" \
+  home_save_project="$home_save_project"
 result=$(_nvim_lua "
-  vim.env.HOME = '$home_save_home'
+  vim.env.HOME = fixture_paths.home_save_home
   package.loaded['nvim_workspace.core.workspace'] = nil
   local restore = require('nvim_workspace.session')
-  vim.cmd('cd ' .. vim.fn.fnameescape('$home_save_project'))
-  vim.cmd('edit ' .. vim.fn.fnameescape('$home_save_file'))
+  vim.cmd('cd ' .. vim.fn.fnameescape(fixture_paths.home_save_project))
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.home_save_file))
 
   local saves = {}
   restore.save_current({
@@ -175,19 +182,21 @@ result=$(_nvim_lua "
 _assert_eq "session: save interface does not require active session" "1" "$result"
 
 multi_tmp=$(_tmpdir)
+_set_fixture_paths multi_tmp="$multi_tmp"
 mkdir -p "$multi_tmp/home" "$multi_tmp/project-a/src" "$multi_tmp/project-a/.git"
 mkdir -p "$multi_tmp/project-b/src" "$multi_tmp/project-b/.git"
 printf '%s\n' 'print("a")' >"$multi_tmp/project-a/src/a.lua"
 printf '%s\n' 'print("b")' >"$multi_tmp/project-b/src/b.lua"
 multi_home=$(_realpath "$multi_tmp/home")
+_set_fixture_paths multi_home="$multi_home"
 multi_a=$(_realpath "$multi_tmp/project-a")
 multi_b=$(_realpath "$multi_tmp/project-b")
 result=$(_nvim_lua "
   local restore = require('nvim_workspace.session')
-  vim.cmd('cd ' .. vim.fn.fnameescape('$multi_home'))
-  vim.cmd('edit ' .. vim.fn.fnameescape('$multi_tmp/project-a/src/a.lua'))
-  vim.cmd('edit ' .. vim.fn.fnameescape('$multi_tmp/project-b/src/b.lua'))
-  vim.cmd('edit ' .. vim.fn.fnameescape('$multi_tmp/project-a/src/a.lua'))
+  vim.cmd('cd ' .. vim.fn.fnameescape(fixture_paths.multi_home))
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.multi_tmp .. '/project-a/src/a.lua'))
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.multi_tmp .. '/project-b/src/b.lua'))
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.multi_tmp .. '/project-a/src/a.lua'))
 
   local saves = {}
   restore.save_current({
@@ -203,11 +212,13 @@ expected="$(printf '%s\n%s|%s|%s' "$multi_home" "$multi_home" "$multi_a" "$multi
 _assert_eq "session: saves each file project root once" "$expected" "$result"
 
 covered_tmp=$(_tmpdir)
+_set_fixture_paths covered_tmp="$covered_tmp"
 mkdir -p "$covered_tmp/home" "$covered_tmp/project/src" "$covered_tmp/project/lib"
 printf '%s\n' 'print("one")' >"$covered_tmp/project/src/one.lua"
 printf '%s\n' 'print("two")' >"$covered_tmp/project/lib/two.lua"
 covered_home=$(_realpath "$covered_tmp/home")
 covered_project=$(_realpath "$covered_tmp/project")
+_set_fixture_paths covered_home="$covered_home" covered_project="$covered_project"
 
 result=$(_nvim_lua "
   package.loaded['nvim_workspace.core.workspace'] = {
@@ -215,7 +226,7 @@ result=$(_nvim_lua "
       return vim.fn.fnamemodify(path, ':p'):gsub('/$', '')
     end,
     default_root = function()
-      return '$covered_home'
+      return fixture_paths.covered_home
     end,
     find_repo_root = function(dir)
       error('unexpected root detection: ' .. tostring(dir))
@@ -226,9 +237,9 @@ result=$(_nvim_lua "
   }
 
   local restore = require('nvim_workspace.session')
-  vim.cmd('cd ' .. vim.fn.fnameescape('$covered_project'))
-  vim.cmd('edit ' .. vim.fn.fnameescape('$covered_tmp/project/src/one.lua'))
-  vim.cmd('edit ' .. vim.fn.fnameescape('$covered_tmp/project/lib/two.lua'))
+  vim.cmd('cd ' .. vim.fn.fnameescape(fixture_paths.covered_project))
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.covered_tmp .. '/project/src/one.lua'))
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.covered_tmp .. '/project/lib/two.lua'))
 
   local saves = {}
   restore.save_current({
@@ -243,11 +254,13 @@ _assert_eq "session: launch cwd covers file buffers without root probes" \
   "$covered_project" "$result"
 
 cache_tmp=$(_tmpdir)
+_set_fixture_paths cache_tmp="$cache_tmp"
 mkdir -p "$cache_tmp/home/project/.git" "$cache_tmp/home/project/src" "$cache_tmp/home/project/lib"
 printf '%s\n' 'print("one")' >"$cache_tmp/home/project/src/one.lua"
 printf '%s\n' 'print("two")' >"$cache_tmp/home/project/lib/two.lua"
 cache_home=$(_realpath "$cache_tmp/home")
 cache_project=$(_realpath "$cache_tmp/home/project")
+_set_fixture_paths cache_home="$cache_home" cache_project="$cache_project"
 
 result=$(_nvim_lua "
   local root_calls = 0
@@ -256,11 +269,11 @@ result=$(_nvim_lua "
       return vim.fn.fnamemodify(path, ':p'):gsub('/$', '')
     end,
     default_root = function()
-      return '$cache_home'
+      return fixture_paths.cache_home
     end,
     find_repo_root = function(dir)
       root_calls = root_calls + 1
-      return '$cache_project'
+      return fixture_paths.cache_project
     end,
     contains = function(root, path)
       return path == root or path:sub(1, #root + 1) == root .. '/'
@@ -268,9 +281,9 @@ result=$(_nvim_lua "
   }
 
   local restore = require('nvim_workspace.session')
-  vim.cmd('cd ' .. vim.fn.fnameescape('$cache_home'))
-  vim.cmd('edit ' .. vim.fn.fnameescape('$cache_tmp/home/project/src/one.lua'))
-  vim.cmd('edit ' .. vim.fn.fnameescape('$cache_tmp/home/project/lib/two.lua'))
+  vim.cmd('cd ' .. vim.fn.fnameescape(fixture_paths.cache_home))
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.cache_tmp .. '/home/project/src/one.lua'))
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.cache_tmp .. '/home/project/lib/two.lua'))
 
   local saves = {}
   restore.save_current({
@@ -287,13 +300,15 @@ _assert_eq "session: reuses discovered roots while preserving nested repo probes
   "$expected" "$result"
 
 fail_tmp=$(_tmpdir)
+_set_fixture_paths fail_tmp="$fail_tmp"
 mkdir -p "$fail_tmp/home" "$fail_tmp/project/src" "$fail_tmp/project/.git"
 printf '%s\n' 'print("fail")' >"$fail_tmp/project/src/fail.lua"
 fail_home=$(_realpath "$fail_tmp/home")
+_set_fixture_paths fail_home="$fail_home"
 result=$(_nvim_lua "
   local restore = require('nvim_workspace.session')
-  vim.cmd('cd ' .. vim.fn.fnameescape('$fail_home'))
-  vim.cmd('edit ' .. vim.fn.fnameescape('$fail_tmp/project/src/fail.lua'))
+  vim.cmd('cd ' .. vim.fn.fnameescape(fixture_paths.fail_home))
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.fail_tmp .. '/project/src/fail.lua'))
 
   local saves = 0
   local ok, err = pcall(function()

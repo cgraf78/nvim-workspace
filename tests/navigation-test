@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -o pipefail
+set -eo pipefail
 
 # shellcheck source=tests/helpers.sh
 . "$(dirname "$0")/helpers.sh"
@@ -10,6 +10,7 @@ echo "=== navigation integration ==="
 tmp=$(_realpath "$(_tmpdir)")
 home="$tmp/home"
 project="$tmp/project"
+_set_fixture_paths tmp="$tmp" home="$home" project="$project"
 bin="$tmp/bin"
 mkdir -p "$home" "$project/src" "$project/lib" "$project/tests" "$bin"
 touch "$home/dotfile.sh" "$project/lib/target.sh" "$project/src/current.sh"
@@ -40,11 +41,11 @@ EOF
 chmod +x "$bin/rg"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$home'
+  vim.env.HOME = fixture_paths.home
   package.loaded['nvim_workspace.config'] = nil
   package.loaded['nvim_workspace.navigation'] = nil
   local navigation = require('nvim_workspace.navigation')
-  vim.api.nvim_command('edit $project/src/current.sh')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.project .. '/src/current.sh'))
   vim.api.nvim_buf_set_lines(0, 0, -1, false, {
     'source ../lib/target.sh:12:4',
     'source ~/dotfile.sh:8',
@@ -70,7 +71,7 @@ _assert_eq "navigation: resolves file references with line and column variants" 
 result=$(_nvim_lua "
   local navigation = require('nvim_workspace.navigation')
   vim.notify = function() end
-  vim.api.nvim_command('edit $project/src/current.sh')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.project .. '/src/current.sh'))
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { '../lib/target.sh:4:2' })
   vim.api.nvim_win_set_cursor(0, { 1, 0 })
   print(tostring(navigation.goto_file_at_cursor()))
@@ -85,19 +86,19 @@ _assert_eq "navigation: goto_file_at_cursor opens the resolved location" \
 
 result=$(PATH="$bin:$PATH" _nvim_lua "
   vim.env.NAV_RG_MODE = 'single'
-  vim.env.NAV_RG_PATH = '$project/lib/target.sh'
-  vim.env.NAV_RG_ARGS = '$tmp/rg-args'
+  vim.env.NAV_RG_PATH = fixture_paths.project .. '/lib/target.sh'
+  vim.env.NAV_RG_ARGS = fixture_paths.tmp .. '/rg-args'
   package.loaded['test_shell_policy'] = {
     search_paths_for = function(path)
       print('policy-path=' .. path)
-      return { '$project' }, { '*.sh' }, '$project'
+      return { fixture_paths.project }, { '*.sh' }, fixture_paths.project
     end,
   }
   require('nvim_workspace').setup({
     navigation = { shell_module = 'test_shell_policy' },
   })
   local navigation = require('nvim_workspace.navigation')
-  vim.api.nvim_command('edit $project/src/current.sh')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.project .. '/src/current.sh'))
   local locations = navigation.shell_locations('target_fn')
   print(#locations)
   print(locations[1].path)
@@ -113,33 +114,33 @@ _assert_contains "navigation: shell_locations passes bounded rg glob" \
 result=$(PATH="$bin:$PATH" _nvim_lua "
   package.loaded['test_shell_policy'] = {
     search_paths_for = function()
-      return { '$project' }, nil, '$project'
+      return { fixture_paths.project }, nil, fixture_paths.project
     end,
   }
   require('nvim_workspace').setup({
     navigation = { shell_module = 'test_shell_policy' },
   })
   local navigation = require('nvim_workspace.navigation')
-  vim.api.nvim_command('edit $project/src/current.sh')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.project .. '/src/current.sh'))
   vim.env.NAV_RG_MODE = 'current'
-  vim.env.NAV_RG_CURRENT = '$project/src/current.sh'
-  vim.env.NAV_RG_OTHER = '$project/src/other.sh'
-  vim.env.NAV_RG_ARGS = '$tmp/rg-args-current'
+  vim.env.NAV_RG_CURRENT = fixture_paths.project .. '/src/current.sh'
+  vim.env.NAV_RG_OTHER = fixture_paths.project .. '/src/other.sh'
+  vim.env.NAV_RG_ARGS = fixture_paths.tmp .. '/rg-args-current'
   local current = navigation.shell_location('target_fn')
   print(current.path)
   print(current.line)
   print(current.col)
   vim.env.NAV_RG_MODE = 'tests'
-  vim.env.NAV_RG_TEST = '$project/tests/fixture.sh'
-  vim.env.NAV_RG_PATH = '$project/lib/target.sh'
-  vim.env.NAV_RG_ARGS = '$tmp/rg-args-tests'
+  vim.env.NAV_RG_TEST = fixture_paths.project .. '/tests/fixture.sh'
+  vim.env.NAV_RG_PATH = fixture_paths.project .. '/lib/target.sh'
+  vim.env.NAV_RG_ARGS = fixture_paths.tmp .. '/rg-args-tests'
   local non_test = navigation.shell_location('target_fn')
   print(non_test.path)
   print(non_test.line)
   print(non_test.col)
   vim.env.NAV_RG_MODE = 'multiple'
-  vim.env.NAV_RG_OTHER = '$project/src/other.sh'
-  vim.env.NAV_RG_ARGS = '$tmp/rg-args-multiple'
+  vim.env.NAV_RG_OTHER = fixture_paths.project .. '/src/other.sh'
+  vim.env.NAV_RG_ARGS = fixture_paths.tmp .. '/rg-args-multiple'
   local missing, reason = navigation.shell_location('target_fn')
   print(tostring(missing))
   print(reason)
@@ -150,11 +151,11 @@ _assert_eq "navigation: shell_location resolves current, non-test, and ambiguous
 
 result=$(PATH="$bin:$PATH" _nvim_lua "
   vim.env.NAV_RG_MODE = 'single'
-  vim.env.NAV_RG_PATH = '$project/lib/target.sh'
-  vim.env.NAV_RG_ARGS = '$tmp/rg-args-goto-shell'
+  vim.env.NAV_RG_PATH = fixture_paths.project .. '/lib/target.sh'
+  vim.env.NAV_RG_ARGS = fixture_paths.tmp .. '/rg-args-goto-shell'
   package.loaded['test_shell_policy'] = {
     search_paths_for = function()
-      return { '$project' }, nil, '$project'
+      return { fixture_paths.project }, nil, fixture_paths.project
     end,
   }
   require('nvim_workspace').setup({
@@ -164,7 +165,7 @@ result=$(PATH="$bin:$PATH" _nvim_lua "
     },
   })
   local navigation = require('nvim_workspace.navigation')
-  vim.api.nvim_command('edit $project/src/current.sh')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.project .. '/src/current.sh'))
   vim.bo.filetype = 'sh'
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'target_fn' })
   vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -199,7 +200,7 @@ result=$(_nvim_lua "
   vim.notify = function(message, level, opts)
     notifications[#notifications + 1] = (opts and opts.title or '') .. ':' .. tostring(level) .. ':' .. message
   end
-  vim.api.nvim_command('edit $project/src/current.sh')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.project .. '/src/current.sh'))
   vim.bo.filetype = 'zsh'
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { '../lib/target.sh' })
   vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -212,7 +213,7 @@ _assert_eq "navigation: goto honors configurable path-first filetypes" "$expecte
 
 result=$(_nvim_lua "
   local navigation = require('nvim_workspace.navigation')
-  vim.api.nvim_command('edit $project/src/current.sh')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.project .. '/src/current.sh'))
   local get_clients = vim.lsp.get_clients
   vim.lsp.get_clients = function()
     return {
@@ -319,7 +320,7 @@ result=$(_nvim_lua "
     navigation = { path_first_filetypes = {} },
   })
   local navigation = require('nvim_workspace.navigation')
-  vim.api.nvim_command('edit $project/src/current.sh')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.project .. '/src/current.sh'))
   vim.bo.filetype = 'lua'
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'target_fn' })
   vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -342,7 +343,7 @@ result=$(_nvim_lua "
     handler({
       [99] = {
         result = {
-          uri = vim.uri_from_fname('$project/lib/target.sh'),
+          uri = vim.uri_from_fname(fixture_paths.project .. '/lib/target.sh'),
           range = {
             start = { line = 3, character = 1 },
             ['end'] = { line = 3, character = 2 },
@@ -369,7 +370,7 @@ result=$(_nvim_lua "
     navigation = { path_first_filetypes = {} },
   })
   local navigation = require('nvim_workspace.navigation')
-  vim.api.nvim_command('edit $project/src/current.sh')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.project .. '/src/current.sh'))
   vim.bo.filetype = 'lua'
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'target_fn' })
   vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -393,14 +394,14 @@ result=$(_nvim_lua "
       [99] = {
         result = {
           {
-            uri = vim.uri_from_fname('$project/lib/target.sh'),
+            uri = vim.uri_from_fname(fixture_paths.project .. '/lib/target.sh'),
             range = {
               start = { line = 1, character = 0 },
               ['end'] = { line = 1, character = 1 },
             },
           },
           {
-            uri = vim.uri_from_fname('$project/src/other.sh'),
+            uri = vim.uri_from_fname(fixture_paths.project .. '/src/other.sh'),
             range = {
               start = { line = 0, character = 0 },
               ['end'] = { line = 0, character = 1 },
@@ -430,7 +431,7 @@ result=$(_nvim_lua "
     navigation = { path_first_filetypes = {} },
   })
   local navigation = require('nvim_workspace.navigation')
-  vim.api.nvim_command('edit $project/src/current.sh')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.project .. '/src/current.sh'))
   vim.bo.filetype = 'lua'
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { '../lib/target.sh' })
   vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -471,7 +472,7 @@ result=$(_nvim_lua "
   vim.notify = function()
     notifications = notifications + 1
   end
-  vim.api.nvim_command('edit $project/src/current.sh')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.project .. '/src/current.sh'))
   vim.bo.filetype = 'lua'
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { '../lib/target.sh' })
   vim.api.nvim_win_set_cursor(0, { 1, 0 })
@@ -509,7 +510,7 @@ _assert_eq "navigation: stale async LSP responses do not mutate another window" 
 result=$(_nvim_lua "
   local navigation = require('nvim_workspace.navigation')
   vim.notify = function() end
-  vim.api.nvim_command('edit $project/src/current.sh')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.project .. '/src/current.sh'))
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'alpha target', 'beta' })
   print(tostring(navigation.goto_mouse({ winid = vim.fn.win_getid(), line = 1, column = 7 })))
   local cursor = vim.api.nvim_win_get_cursor(0)

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -o pipefail
+set -eo pipefail
 
 # shellcheck source=tests/helpers.sh
 . "$(dirname "$0")/helpers.sh"
@@ -11,18 +11,19 @@ tmp=$(_tmpdir)
 # Buffer names resolve directory symlinks, including macOS /var -> /private/var.
 # Keep these root-selection fixtures physical; alias cases add their own links.
 tmp=$(_realpath "$tmp")
+_set_fixture_paths tmp="$tmp"
 mkdir -p "$tmp/home" "$tmp/data/project/src" "$tmp/outside"
 touch "$tmp/data/project/src/file.cpp" "$tmp/outside/target.cpp"
 ln -s "$tmp/data/project" "$tmp/home/project"
 ln -s "$tmp/outside/target.cpp" "$tmp/data/project/src/link.cpp"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   package.loaded['nvim_workspace.core.workspace'] = nil
   local paths = require('nvim_workspace.neo_tree')
-  print(paths.reveal_file('$tmp/data/project', '$tmp/home/project/src/file.cpp'))
-  print(paths.reveal_file('$tmp/home/project', '$tmp/data/project/src/file.cpp'))
-  print(paths.reveal_file('$tmp/data/project', '$tmp/data/project/src/link.cpp'))
+  print(paths.reveal_file(fixture_paths.tmp .. '/data/project', fixture_paths.tmp .. '/home/project/src/file.cpp'))
+  print(paths.reveal_file(fixture_paths.tmp .. '/home/project', fixture_paths.tmp .. '/data/project/src/file.cpp'))
+  print(paths.reveal_file(fixture_paths.tmp .. '/data/project', fixture_paths.tmp .. '/data/project/src/link.cpp'))
 ")
 expected="$(printf '%s\n%s\n%s' \
   "$tmp/data/project/src/file.cpp" \
@@ -32,10 +33,10 @@ _assert_eq "neo-tree: maps symlinked repo roots without dereferencing file symli
   "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   package.loaded['nvim_workspace.core.workspace'] = nil
   local paths = require('nvim_workspace.neo_tree')
-  vim.api.nvim_command('edit $tmp/data/project/src/file.cpp')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/data/project/src/file.cpp'))
   print(paths.root_dir())
 ")
 _assert_eq "neo-tree: root_dir defaults new opens to home" "$tmp/home" "$result"
@@ -44,15 +45,15 @@ result=$(_nvim_lua "
   package.loaded['nvim_workspace.core.workspace'] = {
     current_buffer_dir = function()
       print('current-buffer-dir')
-      return '$tmp/home/project/src'
+      return fixture_paths.tmp .. '/home/project/src'
     end,
     repo_root = function(dir)
       print('repo-root=' .. dir)
-      return '$tmp/home/project'
+      return fixture_paths.tmp .. '/home/project'
     end,
     canonical = function(root)
       print('canonical=' .. root)
-      return '$tmp/data/project'
+      return fixture_paths.tmp .. '/data/project'
     end,
   }
   local paths = require('nvim_workspace.neo_tree')
@@ -65,7 +66,7 @@ expected="$(printf 'current-buffer-dir\nrepo-root=%s\ncanonical=%s\nroot=%s' \
 _assert_eq "neo-tree: context_root delegates to workspace helpers" "$expected" "$result"
 
 result=$(_nvim_lua "
-  local open_root = '$tmp/home/project'
+  local open_root = fixture_paths.tmp .. '/home/project'
   package.loaded['neo-tree.sources.manager'] = {
     get_state = function(source)
       if source == 'filesystem' then
@@ -86,29 +87,29 @@ result=$(_nvim_lua "
 _assert_eq "neo-tree: root_dir preserves existing filesystem root" "$tmp/home/project" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   package.loaded['nvim_workspace.core.workspace'] = nil
   local paths = require('nvim_workspace.neo_tree')
   vim.api.nvim_command('new')
   vim.bo.buftype = 'nofile'
   vim.bo.filetype = 'neo-tree'
-  vim.api.nvim_buf_set_name(0, '$tmp/data/project/neo-tree filesystem [1]')
-  print(tostring(paths.reveal_file('$tmp/data/project')))
+  vim.api.nvim_buf_set_name(0, fixture_paths.tmp .. '/data/project/neo-tree filesystem [1]')
+  print(tostring(paths.reveal_file(fixture_paths.tmp .. '/data/project')))
 ")
 _assert_eq "neo-tree: ignores synthetic names without last file" "nil" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   package.loaded['nvim_workspace.core.workspace'] = nil
   package.loaded['nvim_workspace.neo_tree'] = nil
   local paths = require('nvim_workspace.neo_tree')
-  vim.api.nvim_command('edit $tmp/data/project/src/file.cpp')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/data/project/src/file.cpp'))
   paths.remember_current_file()
   vim.api.nvim_command('new')
   vim.bo.buftype = 'nofile'
   vim.bo.filetype = 'neo-tree'
-  vim.api.nvim_buf_set_name(0, '$tmp/data/project/neo-tree filesystem [1]')
-  print(paths.reveal_file('$tmp/data/project'))
+  vim.api.nvim_buf_set_name(0, fixture_paths.tmp .. '/data/project/neo-tree filesystem [1]')
+  print(paths.reveal_file(fixture_paths.tmp .. '/data/project'))
 ")
 _assert_eq "neo-tree: uses last real file when focus is in neo-tree" \
   "$tmp/data/project/src/file.cpp" "$result"
@@ -134,7 +135,7 @@ result=$(_nvim_lua "
   _G.in_large_repo = function()
     return false
   end
-  local policy = paths.filesystem_policy('$tmp/home/project')
+  local policy = paths.filesystem_policy(fixture_paths.tmp .. '/home/project')
   print(tostring(policy.enable_git_status))
   print(tostring(policy.filtered_items.hide_dotfiles))
   print(tostring(policy.filtered_items.hide_gitignored))
@@ -144,13 +145,13 @@ expected="$(printf 'true\ntrue\ntrue\n2')"
 _assert_eq "neo-tree: normal roots keep git status and hide dotfiles" "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   package.loaded['nvim_workspace.core.workspace'] = nil
   local paths = require('nvim_workspace.neo_tree')
   _G.in_large_repo = function()
     return false
   end
-  local policy = paths.filesystem_policy('$tmp/home')
+  local policy = paths.filesystem_policy(fixture_paths.tmp .. '/home')
   print(tostring(policy.enable_git_status))
   print(tostring(policy.filtered_items.hide_dotfiles))
   print(tostring(policy.filtered_items.hide_gitignored))
@@ -163,13 +164,13 @@ _assert_eq "neo-tree: home root skips gitignore scan and uses tree-specific igno
   "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   package.loaded['nvim_workspace.core.workspace'] = nil
   local paths = require('nvim_workspace.neo_tree')
   _G.in_large_repo = function()
     return false
   end
-  local policy = paths.filesystem_policy('$tmp/home/project/src')
+  local policy = paths.filesystem_policy(fixture_paths.tmp .. '/home/project/src')
   print(tostring(policy.enable_git_status))
   print(tostring(policy.filtered_items.hide_dotfiles))
   print(tostring(policy.filtered_items.hide_gitignored))
@@ -182,13 +183,13 @@ _assert_eq "neo-tree: home subdirs without repos skip gitignore scans" \
 
 mkdir -p "$tmp/home/project/.git"
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   package.loaded['nvim_workspace.core.workspace'] = nil
   local paths = require('nvim_workspace.neo_tree')
   _G.in_large_repo = function()
     return false
   end
-  local policy = paths.filesystem_policy('$tmp/home/project/src')
+  local policy = paths.filesystem_policy(fixture_paths.tmp .. '/home/project/src')
   print(tostring(policy.enable_git_status))
   print(tostring(policy.filtered_items.hide_dotfiles))
   print(tostring(policy.filtered_items.hide_gitignored))
@@ -198,7 +199,7 @@ expected="$(printf 'true\ntrue\ntrue\n2')"
 _assert_eq "neo-tree: normal repos under home keep project git status" "$expected" "$result"
 
 result=$(_nvim_lua "
-  local large = '$tmp/data/project'
+  local large = fixture_paths.tmp .. '/data/project'
   _G.in_large_repo = function(path)
     return path == large
   end
@@ -237,10 +238,10 @@ result=$(_nvim_lua "
   local opened = {}
   package.loaded['nvim_workspace.core.workspace'] = {
     default_root = function()
-      return '$tmp/home'
+      return fixture_paths.tmp .. '/home'
     end,
     current_buffer_dir = function()
-      return '$tmp/home/project/src'
+      return fixture_paths.tmp .. '/home/project/src'
     end,
     repo_root = function(dir)
       return dir .. '/repo'
@@ -253,7 +254,7 @@ result=$(_nvim_lua "
     end,
     prompt_for_dir = function(default_root, callback, opts)
       opened[#opened + 1] = 'prompt=' .. default_root .. ':' .. opts.prompt
-      callback('$tmp/home/prompted')
+      callback(fixture_paths.tmp .. '/home/prompted')
     end,
   }
   local paths = require('nvim_workspace.neo_tree')
@@ -299,44 +300,44 @@ printf 'gitdir: ../external.git/worktrees/example\n' >"$tmp/external/.git"
 touch "$tmp/external/src/file.lua" "$tmp/standalone/file.lua" "$tmp/home/notes/file.lua"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   local paths = require('nvim_workspace.neo_tree')
-  vim.api.nvim_command('edit $tmp/home/notes/file.lua')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/home/notes/file.lua'))
   print(paths.root_dir())
 ")
 _assert_eq "neo-tree: initial home file uses broad home root" "$tmp/home" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   local paths = require('nvim_workspace.neo_tree')
-  vim.api.nvim_command('edit $tmp/external/src/file.lua')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/external/src/file.lua'))
   print(paths.root_dir())
 ")
 _assert_eq "neo-tree: initial external worktree file uses VCS marker root" "$tmp/external" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   local paths = require('nvim_workspace.neo_tree')
-  vim.api.nvim_command('edit $tmp/standalone/file.lua')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/standalone/file.lua'))
   print(paths.root_dir())
 ")
 _assert_eq "neo-tree: initial standalone file uses parent directory" "$tmp/standalone" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   package.loaded['neo-tree.sources.manager'] = {
-    get_state = function() return { path = '$tmp' } end,
+    get_state = function() return { path = fixture_paths.tmp } end,
   }
   local paths = require('nvim_workspace.neo_tree')
-  vim.api.nvim_command('edit $tmp/external/src/file.lua')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/external/src/file.lua'))
   print(paths.root_dir())
 ")
 _assert_eq "neo-tree: containing broad tree root stays selected from file buffer" "$tmp" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   package.loaded['neo-tree.sources.manager'] = {
-    get_state = function() return { path = '$tmp/external' } end,
+    get_state = function() return { path = fixture_paths.tmp .. '/external' } end,
   }
   local paths = require('nvim_workspace.neo_tree')
   vim.bo.buftype = 'nofile'
@@ -345,49 +346,49 @@ result=$(_nvim_lua "
 _assert_eq "neo-tree: reopening from special buffer preserves filesystem root" "$tmp/external" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   local paths = require('nvim_workspace.neo_tree')
-  vim.api.nvim_command('edit $tmp/external/src/new-file.lua')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/external/src/new-file.lua'))
   print(paths.root_dir())
-  print(tostring(paths.reveal_file('$tmp/external')))
+  print(tostring(paths.reveal_file(fixture_paths.tmp .. '/external')))
 ")
 expected="$(printf '%s\nnil' "$tmp/external")"
 _assert_eq "neo-tree: new file scopes from existing parent without revealing missing node" "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   local paths = require('nvim_workspace.neo_tree')
-  vim.api.nvim_command('edit $tmp/data/project/src/new-file.lua')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/data/project/src/new-file.lua'))
   print(paths.root_dir())
-  print(tostring(paths.reveal_file('$tmp/home')))
+  print(tostring(paths.reveal_file(fixture_paths.tmp .. '/home')))
 ")
 expected="$(printf '%s\nnil' "$tmp/home")"
 _assert_eq "neo-tree: new file under canonical home alias scopes to home" "$expected" "$result"
 
 result=$(_nvim_lua "
   local paths = require('nvim_workspace.neo_tree')
-  vim.api.nvim_command('edit $tmp/external/src/file.lua')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/external/src/file.lua'))
   paths.remember_current_file()
   local first_tab = vim.api.nvim_get_current_tabpage()
   vim.api.nvim_command('tabnew')
-  vim.api.nvim_command('edit $tmp/standalone/file.lua')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/standalone/file.lua'))
   paths.remember_current_file()
   vim.api.nvim_set_current_buf(vim.api.nvim_create_buf(true, false))
   vim.bo.buftype = 'nofile'
-  print(paths.reveal_file('$tmp'))
+  print(paths.reveal_file(fixture_paths.tmp))
   vim.api.nvim_set_current_tabpage(first_tab)
   vim.api.nvim_set_current_buf(vim.api.nvim_create_buf(true, false))
   vim.bo.buftype = 'nofile'
-  print(paths.reveal_file('$tmp'))
+  print(paths.reveal_file(fixture_paths.tmp))
 ")
 expected="$(printf '%s\n%s' "$tmp/standalone/file.lua" "$tmp/external/src/file.lua")"
 _assert_eq "neo-tree: special-buffer reveal fallback remembers files per tab" "$expected" "$result"
 
 result=$(_nvim_lua "
   local paths = require('nvim_workspace.neo_tree')
-  vim.api.nvim_command('edit $tmp/external/src/file.lua')
-  print(tostring(paths.reveal_file('$tmp/standalone')))
-  print(tostring(paths.reveal_file('$tmp/standalone', '$tmp/external/src/file.lua')))
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/external/src/file.lua'))
+  print(tostring(paths.reveal_file(fixture_paths.tmp .. '/standalone')))
+  print(tostring(paths.reveal_file(fixture_paths.tmp .. '/standalone', fixture_paths.tmp .. '/external/src/file.lua')))
 ")
 expected="$(printf 'nil\nnil')"
 _assert_eq "neo-tree: explicit root never reveals an outside file" "$expected" "$result"
@@ -401,19 +402,19 @@ result=$(_nvim_lua "
     end,
   }
   local paths = require('nvim_workspace.neo_tree')
-  vim.api.nvim_command('edit $tmp/external/src/file.lua')
-  paths.open('$tmp/external', { reveal = false })
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/external/src/file.lua'))
+  paths.open(fixture_paths.tmp .. '/external', { reveal = false })
 ")
 expected="$(printf 'false\nnil\n%s' "$tmp/external")"
 _assert_eq "neo-tree: reveal false suppresses explicit and plugin-implied reveal" "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   package.loaded['neo-tree.sources.manager'] = {
     get_state = function() return { path = '/' } end,
   }
   local paths = require('nvim_workspace.neo_tree')
-  vim.api.nvim_command('edit $tmp/external/src/file.lua')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/external/src/file.lua'))
   print(paths.root_dir())
   print(paths.reveal_file('/'))
 ")
@@ -421,60 +422,60 @@ expected="$(printf '/\n%s' "$tmp/external/src/file.lua")"
 _assert_eq "neo-tree: filesystem root contains and reveals ordinary files" "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   package.loaded['neo-tree.sources.manager'] = {
-    get_state = function() return { path = '$tmp/home/project' } end,
+    get_state = function() return { path = fixture_paths.tmp .. '/home/project' } end,
   }
   local paths = require('nvim_workspace.neo_tree')
-  vim.api.nvim_command('edit $tmp/data/project/src/file.cpp')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/data/project/src/file.cpp'))
   print(paths.root_dir())
-  print(paths.reveal_file('$tmp/home/project'))
+  print(paths.reveal_file(fixture_paths.tmp .. '/home/project'))
 ")
 expected="$(printf '%s\n%s' "$tmp/home/project" "$tmp/home/project/src/file.cpp")"
 _assert_eq "neo-tree: canonical buffer retains selected visible symlink root" "$expected" "$result"
 
 result=$(_nvim_lua "
   package.loaded['neo-tree.sources.manager'] = {
-    get_state = function() return { path = '$tmp/data/project' } end,
+    get_state = function() return { path = fixture_paths.tmp .. '/data/project' } end,
   }
   local paths = require('nvim_workspace.neo_tree')
-  vim.api.nvim_command('edit $tmp/data/project/src/link.cpp')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/data/project/src/link.cpp'))
   print(paths.root_dir())
-  print(paths.reveal_file('$tmp/data/project'))
+  print(paths.reveal_file(fixture_paths.tmp .. '/data/project'))
 ")
 expected="$(printf '%s\n%s' "$tmp/data/project" "$tmp/data/project/src/link.cpp")"
 _assert_eq "neo-tree: tracked symlink file retains tree instead of target parent" "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   package.loaded['neo-tree.sources.manager'] = {
-    get_state = function() return { path = '$tmp/external' } end,
+    get_state = function() return { path = fixture_paths.tmp .. '/external' } end,
   }
   local paths = require('nvim_workspace.neo_tree')
-  vim.api.nvim_command('edit $tmp/home/notes/file.lua')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/home/notes/file.lua'))
   print(paths.root_dir())
 ")
 _assert_eq "neo-tree: home file outside current external tree selects home" "$tmp/home" "$result"
 
 ln -s "$tmp/external" "$tmp/external-alias"
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   package.loaded['neo-tree.sources.manager'] = {
-    get_state = function() return { path = '$tmp/external' } end,
+    get_state = function() return { path = fixture_paths.tmp .. '/external' } end,
   }
   local paths = require('nvim_workspace.neo_tree')
-  vim.api.nvim_command('edit $tmp/external-alias/src/new-file.lua')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/external-alias/src/new-file.lua'))
   print(paths.root_dir())
-  print(tostring(paths.reveal_file('$tmp/external')))
+  print(tostring(paths.reveal_file(fixture_paths.tmp .. '/external')))
   print(tostring(require('nvim_workspace.core.workspace').visible_path(
-    '$tmp/external', '$tmp/external-alias/src/new-file.lua')))
+    fixture_paths.tmp .. '/external', fixture_paths.tmp .. '/external-alias/src/new-file.lua')))
 ")
 expected="$(printf '%s\nnil\n%s' "$tmp/external" "$tmp/external/src/new-file.lua")"
 _assert_eq "neo-tree: missing file through external alias retains containing canonical root" "$expected" "$result"
 
 result=$(_nvim_lua "
   package.loaded['neo-tree.sources.manager'] = {
-    get_state = function() return { path = '$tmp/external' } end,
+    get_state = function() return { path = fixture_paths.tmp .. '/external' } end,
   }
   local paths = require('nvim_workspace.neo_tree')
   vim.api.nvim_buf_set_name(0, 'scp://example.invalid/tmp/file.lua')

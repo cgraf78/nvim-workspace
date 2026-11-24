@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Load the checked-in Lua examples in headless Neovim.
 
-set -o pipefail
+set -eo pipefail
 
 # shellcheck source=tests/helpers.sh
 . "$(dirname "$0")/helpers.sh"
@@ -21,7 +21,7 @@ result=$(_nvim_lua "
   vim.keymap.set = function(mode, lhs, rhs, opts)
     mappings[#mappings + 1] = { mode = mode, lhs = lhs, rhs = rhs, opts = opts }
   end
-  local spec = dofile('$TEST_ROOT/examples/lazy.lua')
+  local spec = dofile(test_root .. '/examples/lazy.lua')
   spec.config()
   vim.keymap.set = original_set
   mappings[1].rhs()
@@ -56,7 +56,7 @@ result=$(_nvim_lua "
       return registered
     end,
   }
-  local example = dofile('$TEST_ROOT/examples/file-source.lua')
+  local example = dofile(test_root .. '/examples/file-source.lua')
   local registration = example.register({
     paths = { 'README.md', 'lua/nvim_workspace/init.lua', 'docs/design.md' },
     name = 'Example index',

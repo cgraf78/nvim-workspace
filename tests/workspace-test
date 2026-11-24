@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -o pipefail
+set -eo pipefail
 
 # shellcheck source=tests/helpers.sh
 . "$(dirname "$0")/helpers.sh"
@@ -17,6 +17,7 @@ expected="$(printf '%s\nfunction\nfunction' "$HOME")"
 _assert_eq "workspace: exposes shared root helpers" "$expected" "$result"
 
 tmp=$(_tmpdir)
+_set_fixture_paths tmp="$tmp"
 mkdir -p "$tmp/project/src" "$tmp/project-other" "$tmp/project/.hg/origbackups"
 mkdir -p "$tmp/project/.config" "$tmp/outside" "$tmp/home" "$tmp/data/project/src"
 touch "$tmp/project/src/file.lua" "$tmp/project-other/file.lua"
@@ -26,51 +27,52 @@ ln -s "$tmp/project" "$tmp/project-link"
 ln -s "$tmp/outside/target.lua" "$tmp/project/src/link.lua"
 ln -s "$tmp/data/project" "$tmp/home/project"
 project_real=$(_realpath "$tmp/project")
+_set_fixture_paths project_real="$project_real"
 
 result=$(_nvim_lua "
   local workspace = require('nvim_workspace.core.workspace')
-  print(workspace.normalize('$tmp/project/src/file.lua'))
+  print(workspace.normalize(fixture_paths.tmp .. '/project/src/file.lua'))
 ")
 _assert_eq "normalize: file path scopes to parent directory" "$tmp/project/src" "$result"
 
 result=$(_nvim_lua "
   local workspace = require('nvim_workspace.core.workspace')
-  local root = '$tmp/project'
-  print(tostring(workspace.contains(root, '$tmp/project/src/file.lua')))
-  print(tostring(workspace.contains(root, '$tmp/project')))
-  print(tostring(workspace.contains(root, '$tmp/project-other/file.lua')))
+  local root = fixture_paths.tmp .. '/project'
+  print(tostring(workspace.contains(root, fixture_paths.tmp .. '/project/src/file.lua')))
+  print(tostring(workspace.contains(root, fixture_paths.tmp .. '/project')))
+  print(tostring(workspace.contains(root, fixture_paths.tmp .. '/project-other/file.lua')))
 ")
 expected="$(printf 'true\ntrue\nfalse')"
 _assert_eq "contains: respects path boundaries" "$expected" "$result"
 
 result=$(_nvim_lua "
   local workspace = require('nvim_workspace.core.workspace')
-  local root = '$tmp/project'
-  print(workspace.relative_path(root, '$tmp/project/src/file.lua'))
-  local same = workspace.relative_path(root, '$tmp/project')
+  local root = fixture_paths.tmp .. '/project'
+  print(workspace.relative_path(root, fixture_paths.tmp .. '/project/src/file.lua'))
+  local same = workspace.relative_path(root, fixture_paths.tmp .. '/project')
   print(same == '' and '<empty>' or tostring(same))
-  print(tostring(workspace.relative_path(root, '$tmp/project-other/file.lua')))
+  print(tostring(workspace.relative_path(root, fixture_paths.tmp .. '/project-other/file.lua')))
 ")
 expected="$(printf 'src/file.lua\n<empty>\nnil')"
 _assert_eq "relative_path: computes repo-relative scoped paths" "$expected" "$result"
 
 result=$(_nvim_lua "
   local workspace = require('nvim_workspace.core.workspace')
-  print(tostring(workspace.contains('$tmp/project', '$tmp/project-link/src/file.lua')))
-  print(workspace.relative_path('$tmp/project', '$tmp/project-link/src/file.lua'))
+  print(tostring(workspace.contains(fixture_paths.tmp .. '/project', fixture_paths.tmp .. '/project-link/src/file.lua')))
+  print(workspace.relative_path(fixture_paths.tmp .. '/project', fixture_paths.tmp .. '/project-link/src/file.lua'))
 ")
 expected="$(printf 'true\nsrc/file.lua')"
 _assert_eq "canonical paths: symlinked roots compare by real path" "$expected" "$result"
 
 result=$(_nvim_lua "
   local workspace = require('nvim_workspace.core.workspace')
-  print(tostring(workspace.contains('$tmp/home', '$tmp/home/project/src/file.lua')))
+  print(tostring(workspace.contains(fixture_paths.tmp .. '/home', fixture_paths.tmp .. '/home/project/src/file.lua')))
 ")
 _assert_eq "contains: keeps visible symlink paths under parent root" "true" "$result"
 
 result=$(_nvim_lua "
   local workspace = require('nvim_workspace.core.workspace')
-  local visible = workspace.visible_path('$tmp/home/project', '$tmp/data/project/src/file.lua')
+  local visible = workspace.visible_path(fixture_paths.tmp .. '/home/project', fixture_paths.tmp .. '/data/project/src/file.lua')
   print(visible)
 ")
 _assert_eq "visible_path: maps canonical paths back under selected visible root" \
@@ -78,26 +80,26 @@ _assert_eq "visible_path: maps canonical paths back under selected visible root"
 
 result=$(_nvim_lua "
   local workspace = require('nvim_workspace.core.workspace')
-  print(workspace.visible_relative_path('$tmp/project', '$tmp/project/src/link.lua'))
+  print(workspace.visible_relative_path(fixture_paths.tmp .. '/project', fixture_paths.tmp .. '/project/src/link.lua'))
 ")
 _assert_eq "visible_relative_path: keeps tracked symlink spelling" "src/link.lua" "$result"
 
 result=$(_nvim_lua "
   local workspace = require('nvim_workspace.core.workspace')
-  local same = workspace.visible_relative_path('$tmp/project', '$tmp/project')
+  local same = workspace.visible_relative_path(fixture_paths.tmp .. '/project', fixture_paths.tmp .. '/project')
   print(same == '' and '<empty>' or tostring(same))
-  print(tostring(workspace.visible_relative_path('$tmp/project', '$tmp/project-other/file.lua')))
-  print(workspace.visible_relative_path('$tmp/home/project', '$tmp/data/project/src/file.lua'))
+  print(tostring(workspace.visible_relative_path(fixture_paths.tmp .. '/project', fixture_paths.tmp .. '/project-other/file.lua')))
+  print(workspace.visible_relative_path(fixture_paths.tmp .. '/home/project', fixture_paths.tmp .. '/data/project/src/file.lua'))
 ")
 expected="$(printf '<empty>\nnil\nsrc/file.lua')"
 _assert_eq "visible_relative_path: handles root, outside, and canonical aliases" \
   "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   package.loaded['nvim_workspace.core.workspace'] = nil
   local workspace = require('nvim_workspace.core.workspace')
-  vim.api.nvim_command('edit $tmp/data/project/src/file.lua')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/data/project/src/file.lua'))
   print(workspace.current_buffer_dir())
 ")
 _assert_eq "current_buffer_dir: prefers visible HOME aliases" "$tmp/home/project/src" "$result"
@@ -105,7 +107,7 @@ _assert_eq "current_buffer_dir: prefers visible HOME aliases" "$tmp/home/project
 project_src_real=$(_realpath "$tmp/project/src")
 result=$(_nvim_lua "
   local workspace = require('nvim_workspace.core.workspace')
-  vim.api.nvim_command('edit $tmp/project/src/new-file.lua')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/project/src/new-file.lua'))
   print(workspace.current_buffer_dir())
   print(workspace.repo_root())
 ")
@@ -114,17 +116,17 @@ _assert_eq "current_buffer_dir: new files keep parent dir but repo roots use vcs
   "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   package.loaded['nvim_workspace.core.workspace'] = nil
   local workspace = require('nvim_workspace.core.workspace')
-  vim.api.nvim_command('edit $tmp/data/project/src/new-file.lua')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/data/project/src/new-file.lua'))
   print(workspace.current_buffer_dir())
 ")
 _assert_eq "current_buffer_dir: new files keep visible HOME aliases" "$tmp/home/project/src" "$result"
 
 result=$(_nvim_lua "
   local workspace = require('nvim_workspace.core.workspace')
-  vim.api.nvim_command('cd $tmp/project')
+  vim.cmd('cd ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/project'))
   vim.api.nvim_command('new')
   vim.bo.buftype = 'nofile'
   print(tostring(workspace.current_file_dir()))
@@ -135,26 +137,26 @@ _assert_eq "current_file_dir: nofile buffers do not fall back to cwd" "$expected
 
 result=$(_nvim_lua "
   local workspace = require('nvim_workspace.core.workspace')
-  vim.api.nvim_command('cd $tmp/project')
+  vim.cmd('cd ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/project'))
   vim.api.nvim_command('new')
   vim.bo.buftype = 'nofile'
   vim.bo.filetype = 'neo-tree'
-  vim.api.nvim_buf_set_name(0, '$tmp/project/neo-tree filesystem [1]')
+  vim.api.nvim_buf_set_name(0, fixture_paths.tmp .. '/project/neo-tree filesystem [1]')
   print(workspace.current_buffer_dir())
 ")
 _assert_eq "current_buffer_dir: ignores synthetic neo-tree buffer names" "$project_real" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$tmp/home'
+  vim.env.HOME = fixture_paths.tmp .. '/home'
   package.loaded['nvim_workspace.core.workspace'] = nil
   local workspace = require('nvim_workspace.core.workspace')
   local input_opts
   vim.ui.input = function(opts, callback)
     input_opts = opts
-    callback('$tmp/project/src')
+    callback(fixture_paths.tmp .. '/project/src')
   end
   local opened
-  workspace.prompt_for_dir('$tmp/home', function(root)
+  workspace.prompt_for_dir(fixture_paths.tmp .. '/home', function(root)
     opened = root
   end, { prompt = 'Custom root: ' })
   vim.wait(1000, function()
@@ -181,7 +183,7 @@ echo "=== workspace: repo root detection ==="
 
 result=$(_nvim_lua "
   local workspace = require('nvim_workspace.core.workspace')
-  local path = '$tmp/outside'
+  local path = fixture_paths.tmp .. '/outside'
   print(tostring(workspace.find_repo_root(path)))
   print(workspace.repo_root(path))
 ")
@@ -190,9 +192,9 @@ _assert_eq "repo_root: distinguishes unsupported repo from fallback" "$expected"
 
 result=$(_nvim_lua "
   local workspace = require('nvim_workspace')
-  vim.api.nvim_command('edit $tmp/project/src/file.lua')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/project/src/file.lua'))
   print(workspace.current_file_repo_root())
-  vim.api.nvim_command('edit $tmp/outside/target.lua')
+  vim.cmd('edit ' .. vim.fn.fnameescape(fixture_paths.tmp .. '/outside/target.lua'))
   print(tostring(workspace.current_file_repo_root()))
   vim.api.nvim_command('new')
   vim.bo.buftype = 'nofile'
@@ -204,7 +206,7 @@ _assert_eq "repo_root: current_file_repo_root returns only detected file roots" 
 
 result=$(_nvim_lua "
   local workspace = require('nvim_workspace.core.workspace')
-  local path = '$tmp/project/src/file.lua'
+  local path = fixture_paths.tmp .. '/project/src/file.lua'
   print(workspace.find_vcs_root(path))
   print(workspace.find_repo_root(path))
   print(workspace.repo_root(path))
@@ -221,9 +223,9 @@ result=$(_nvim_lua "
     },
   })
   local workspace = require('nvim_workspace.core.workspace')
-  print(workspace.find_vcs_root('$tmp/project/src/file.lua'))
-  print(workspace.find_repo_root('$tmp/project/src/file.lua'))
-  print(workspace.repo_root('$tmp/project/src/file.lua'))
+  print(workspace.find_vcs_root(fixture_paths.tmp .. '/project/src/file.lua'))
+  print(workspace.find_repo_root(fixture_paths.tmp .. '/project/src/file.lua'))
+  print(workspace.repo_root(fixture_paths.tmp .. '/project/src/file.lua'))
 ")
 expected="$(printf '%s\n%s\n%s' "$tmp/project" "$tmp/project" "$tmp/project")"
 _assert_eq "repo_root: marker roots avoid configured detectors by default" \
@@ -232,7 +234,7 @@ _assert_eq "repo_root: marker roots avoid configured detectors by default" \
 result=$(_nvim_lua "
   require('nvim_workspace').setup({
     workspace = {
-      ignored_marker_roots = { '$tmp/project' },
+      ignored_marker_roots = { fixture_paths.tmp .. '/project' },
       repo_root_detector = function(start, opts)
         print('detector=' .. start)
         print('marker=' .. tostring(opts and opts.marker_root))
@@ -241,9 +243,9 @@ result=$(_nvim_lua "
     },
   })
   local workspace = require('nvim_workspace.core.workspace')
-  print(tostring(workspace.find_vcs_root('$tmp/project/src/file.lua')))
-  print(tostring(workspace.find_repo_root('$tmp/project/src/file.lua')))
-  print(workspace.repo_root('$tmp/project/src/file.lua'))
+  print(tostring(workspace.find_vcs_root(fixture_paths.tmp .. '/project/src/file.lua')))
+  print(tostring(workspace.find_repo_root(fixture_paths.tmp .. '/project/src/file.lua')))
+  print(workspace.repo_root(fixture_paths.tmp .. '/project/src/file.lua'))
 ")
 expected="$(printf 'detector=%s\nmarker=nil\nnil\ndetector=%s\nmarker=nil\nnil\ndetector=%s\nmarker=nil\n%s' \
   "$tmp/project/src" "$tmp/project/src" "$tmp/project/src" "$tmp/project/src")"
@@ -252,7 +254,7 @@ _assert_eq "repo_root: configured ignored marker roots fall through to detectors
 
 result=$(_nvim_lua "
   local workspace = require('nvim_workspace.core.workspace')
-  local path = '$tmp/missing-dir'
+  local path = fixture_paths.tmp .. '/missing-dir'
   print(tostring(workspace.find_repo_root(path)))
   print(workspace.repo_root(path))
 ")
@@ -267,15 +269,15 @@ result=$(_nvim_lua "
         print('detector=' .. start)
         print('kind=' .. tostring(opts and opts.kind))
         print('marker=' .. tostring(opts and opts.marker_root))
-        return '$project_real'
+        return fixture_paths.project_real
       end,
     },
   })
   local workspace = require('nvim_workspace.core.workspace')
-  print(workspace.find_vcs_root('$tmp/outside/target.lua'))
-  print(workspace.find_repo_root('$tmp/outside/target.lua'))
-  print(workspace.repo_root('$tmp/outside/target.lua'))
-  print(workspace.find_vcs_root('$tmp/project/src/file.lua'))
+  print(workspace.find_vcs_root(fixture_paths.tmp .. '/outside/target.lua'))
+  print(workspace.find_repo_root(fixture_paths.tmp .. '/outside/target.lua'))
+  print(workspace.repo_root(fixture_paths.tmp .. '/outside/target.lua'))
+  print(workspace.find_vcs_root(fixture_paths.tmp .. '/project/src/file.lua'))
 ")
 expected="$(printf 'detector=%s\nkind=vcs\nmarker=nil\n%s\ndetector=%s\nkind=vcs\nmarker=nil\n%s\ndetector=%s\nkind=vcs\nmarker=nil\n%s\ndetector=%s\nkind=vcs\nmarker=%s\n%s' \
   "$tmp/outside" "$project_real" \
@@ -294,7 +296,7 @@ result=$(_nvim_lua "
     },
   })
   local workspace = require('nvim_workspace.core.workspace')
-  local path = '$tmp/project/src/file.lua'
+  local path = fixture_paths.tmp .. '/project/src/file.lua'
   print(tostring(workspace.find_vcs_root(path)))
   print(tostring(workspace.find_repo_root(path)))
   print(workspace.repo_root(path))
@@ -303,6 +305,7 @@ expected="$(printf '%s\n%s\n%s' "$tmp/project" "$tmp/project" "$tmp/project")"
 _assert_eq "repo_root: detector failures fall back to marker roots" "$expected" "$result"
 
 home_workspace=$(_tmpdir)
+_set_fixture_paths home_workspace="$home_workspace"
 mkdir -p "$home_workspace/.config/tool"
 
 result=$(_nvim_lua "
@@ -312,12 +315,12 @@ result=$(_nvim_lua "
       home_workspace_detector = function(start, opts)
         print('home-detector=' .. start)
         print('kind=' .. tostring(opts and opts.kind))
-        return '$home_workspace'
+        return fixture_paths.home_workspace
       end,
     },
   })
-  print(workspace.find_repo_root('$home_workspace/.config/tool'))
-  print(workspace.repo_root('$home_workspace/.config/tool'))
+  print(workspace.find_repo_root(fixture_paths.home_workspace .. '/.config/tool'))
+  print(workspace.repo_root(fixture_paths.home_workspace .. '/.config/tool'))
 ")
 expected="$(printf 'home-detector=%s\nkind=home\n%s\nhome-detector=%s\nkind=home\n%s' \
   "$home_workspace/.config/tool" "$home_workspace" \
@@ -326,13 +329,13 @@ _assert_eq "repo_root: configured home workspace detector owns host roots" \
   "$expected" "$result"
 
 result=$(_nvim_lua "
-  vim.env.HOME = '$home_workspace'
+  vim.env.HOME = fixture_paths.home_workspace
   require('nvim_workspace').setup({
     workspace = {
       home_workspace_detector = function(start, opts)
         print('home-detector=' .. start)
         print('kind=' .. tostring(opts and opts.kind))
-        return '$home_workspace'
+        return fixture_paths.home_workspace
       end,
     },
   })
@@ -355,10 +358,10 @@ result=$(_nvim_lua "
       path = path,
       search_root = opts and opts.search_root or false,
     }
-    return path == workspace.canonical('$tmp/project') and opts ~= nil and opts.search_root == true
+    return path == workspace.canonical(fixture_paths.tmp .. '/project') and opts ~= nil and opts.search_root == true
   end
-  print(tostring(workspace.is_large_repo('$tmp/project-link', { search_root = true })))
-  print(tostring(workspace.is_large_repo('$tmp/project/src', { search_root = true })))
+  print(tostring(workspace.is_large_repo(fixture_paths.tmp .. '/project-link', { search_root = true })))
+  print(tostring(workspace.is_large_repo(fixture_paths.tmp .. '/project/src', { search_root = true })))
   print(calls[1].path)
   print(tostring(calls[1].search_root))
 ")
@@ -374,7 +377,7 @@ result=$(_nvim_lua "
     seen_opts = opts
     return true
   end
-  print(tostring(workspace.is_large_repo('$tmp/project-link', { canonical = false })))
+  print(tostring(workspace.is_large_repo(fixture_paths.tmp .. '/project-link', { canonical = false })))
   print(seen_path)
   print(tostring(seen_opts))
 ")
@@ -384,10 +387,10 @@ _assert_eq "large roots: workspace preserves explicit roots without leaking priv
 
 result=$(_nvim_lua "
   local workspace = require('nvim_workspace.core.workspace')
-  print(tostring(workspace.contains('/', '$tmp/project/src/file.lua')))
-  print(workspace.visible_path('/', '$tmp/project/src/file.lua'))
-  print(workspace.relative_path('/', '$tmp/project/src/file.lua'))
-  print(workspace.visible_relative_path('/', '$tmp/project/src/file.lua'))
+  print(tostring(workspace.contains('/', fixture_paths.tmp .. '/project/src/file.lua')))
+  print(workspace.visible_path('/', fixture_paths.tmp .. '/project/src/file.lua'))
+  print(workspace.relative_path('/', fixture_paths.tmp .. '/project/src/file.lua'))
+  print(workspace.visible_relative_path('/', fixture_paths.tmp .. '/project/src/file.lua'))
 ")
 expected="$(printf 'true\n%s\n%s\n%s' \
   "$tmp/project/src/file.lua" "${project_real#/}/src/file.lua" "${tmp#/}/project/src/file.lua")"

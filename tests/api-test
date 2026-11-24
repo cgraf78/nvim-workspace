@@ -1,9 +1,22 @@
 #!/usr/bin/env bash
 
-set -o pipefail
+set -eo pipefail
 
 # shellcheck source=tests/helpers.sh
 . "$(dirname "$0")/helpers.sh"
+
+_assert_private_lua_api() {
+  local desc=$1 api=$2 allowed="$TEST_ROOT/lua/$3" matches match status=0
+
+  matches=$(grep -R -n -F -- "$api" "$TEST_ROOT/lua") || status=$?
+  # grep uses 1 for no matches. Any other nonzero status means the scan
+  # failed and cannot establish that the compatibility layer is respected.
+  ((status <= 1)) || _fail "$desc: source scan failed (grep exited $status)"
+  while IFS= read -r match; do
+    [[ -z "$match" || "$match" == "$allowed":* ]] || _fail "$desc: $match"
+  done <<<"$matches"
+  _pass "$desc"
+}
 
 echo "=== public api ==="
 
@@ -80,8 +93,8 @@ result=$(_nvim_lua '
 ')
 _assert_eq "api: uv helper falls back to vim.loop" "true" "$result"
 
-result=$(grep -R -n "vim\\.uv" "$TEST_ROOT/lua" | grep -v "/lua/nvim_workspace/core/uv.lua" || true)
-_assert_eq "api: uv access stays behind compatibility helper" "" "$result"
+_assert_private_lua_api "api: uv access stays behind compatibility helper" \
+  vim.uv nvim_workspace/core/uv.lua
 
 result=$(_nvim_lua '
   local saved_islist = vim.islist
@@ -97,8 +110,8 @@ result=$(_nvim_lua '
 expected="$(printf 'true\nfalse\nfalse\nfalse')"
 _assert_eq "api: list helper works without vim.islist" "$expected" "$result"
 
-result=$(grep -R -n "vim\\.islist" "$TEST_ROOT/lua" | grep -v "/lua/nvim_workspace/core/list.lua" || true)
-_assert_eq "api: islist access stays behind compatibility helper" "" "$result"
+_assert_private_lua_api "api: islist access stays behind compatibility helper" \
+  vim.islist nvim_workspace/core/list.lua
 
 result=$(_nvim_lua '
   local saved_get_clients = vim.lsp.get_clients
@@ -121,8 +134,8 @@ result=$(_nvim_lua '
 expected="$(printf '13\n1\n7')"
 _assert_eq "api: lsp helper falls back to get_active_clients" "$expected" "$result"
 
-result=$(grep -R -n "vim\\.lsp\\.get_clients" "$TEST_ROOT/lua" | grep -v "/lua/nvim_workspace/core/lsp.lua" || true)
-_assert_eq "api: lsp client lookup stays behind compatibility helper" "" "$result"
+_assert_private_lua_api "api: lsp client lookup stays behind compatibility helper" \
+  vim.lsp.get_clients nvim_workspace/core/lsp.lua
 
 caller=$(_tmpdir)
 caller_state="$caller/state"
